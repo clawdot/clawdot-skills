@@ -1,0 +1,88 @@
+{
+  "shop": {
+    "id": "E15074238835124929109",
+    "name": "瑞幸咖啡(新街口店)",
+    "address": "南京市玄武区新街口大街1号",
+    "business_hours": "周一至周日 07:00-22:00",
+    "announcement": "欢迎光临"
+  },
+  "menu": [
+    {
+      "category": "经典咖啡",
+      "items": [
+        {
+          "item_id": "670685166551",
+          "sku_id": "5014584502270",
+          "name": "生椰拿铁",
+          "description": "椰浆+浓缩咖啡",
+          "image": "https://example.com/coconut.jpg",
+          "price": 29.0,
+          "original_price": 35.0,
+          "sold_count": "月售 2000+",
+          "in_stock": true,
+          "specs": [{ "name": "规格", "options": ["大杯", "中杯"] }],
+          "attrs": [{ "name": "温度", "options": ["冰", "热"] }, { "name": "糖度", "options": ["标准", "少糖", "无糖"] }],
+          "ingredients": [
+            {
+              "group_name": "浓缩",
+              "required": true,
+              "options": [
+                { "id": "ig_0_0", "name": "单份浓缩", "price": 0, "item_id": "700001", "sku_id": "800001", "package_id": "900001" },
+                { "id": "ig_0_1", "name": "双份浓缩", "price": 3.0, "item_id": "700002", "sku_id": "800002", "package_id": "900002" }
+              ],
+              "default_id": "ig_0_0"
+            },
+            {
+              "group_name": "椰浆",
+              "required": true,
+              "options": [
+                { "id": "ig_1_0", "name": "标准椰浆", "price": 0, "item_id": "700003", "sku_id": "800003", "package_id": "900003" },
+                { "id": "ig_1_1", "name": "加浓椰浆", "price": 2.0, "item_id": "700004", "sku_id": "800004", "package_id": "900004" }
+              ],
+              "default_id": "ig_1_0"
+            }
+          ],
+          "default_ingredients": [
+            { "item_id": "700001", "sku_id": "800001", "package_id": "900001", "buy_amount": 1 },
+            { "item_id": "700003", "sku_id": "800003", "package_id": "900003", "buy_amount": 1 }
+          ]
+        },
+        {
+          "item_id": "670685166552",
+          "sku_id": "5014584502271",
+          "name": "美式咖啡",
+          "description": "浓缩+水",
+          "image": "https://example.com/americano.jpg",
+          "price": 21.0,
+          "original_price": null,
+          "sold_count": "月售 1500+",
+          "in_stock": true,
+          "specs": [{ "name": "规格", "options": ["大杯", "中杯"] }],
+          "attrs": [{ "name": "温度", "options": ["冰", "热"] }],
+          "ingredients": [],
+          "default_ingredients": []
+        }
+      ]
+    },
+    {
+      "category": "轻食",
+      "items": [
+        {
+          "item_id": "670685166553",
+          "sku_id": "5014584502272",
+          "name": "鸡肉三明治",
+          "description": "鸡胸肉+全麦面包",
+          "image": "https://example.com/sandwich.jpg",
+          "price": 25.0,
+          "original_price": 30.0,
+          "sold_count": "月售 500+",
+          "in_stock": true,
+          "specs": [],
+          "attrs": [],
+          "ingredients": [],
+          "default_ingredients": []
+        }
+      ]
+    }
+  ]
+}
