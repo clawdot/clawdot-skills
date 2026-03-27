@@ -1,6 +1,5 @@
 import { Type } from "@sinclair/typebox";
 import type { GatewayClient } from "./gateway-client.js";
-import type { AuthBridge } from "./auth-bridge.js";
 import type { TakeoutConfig } from "./config.js";
 import type { TtlCache } from "./cache.js";
 import type { Address, TrimmedSearchResult, ShopDetailResponse } from "./types.js";
@@ -14,17 +13,15 @@ import { handleOrder, handleOrderStatus } from "./handlers/order.js";
 
 export interface TakeoutToolDeps {
   gateway: GatewayClient;
-  authBridge: AuthBridge;
+  userToken: string;
   searchCache: TtlCache<TrimmedSearchResult>;
   menuCache: TtlCache<ShopDetailResponse>;
   addressCache: TtlCache<Address[]>;
   config: TakeoutConfig;
-  ctx: { requesterSenderId?: string };
 }
 
 export function createTakeoutTool(deps: TakeoutToolDeps) {
-  const { gateway, authBridge, searchCache, menuCache, addressCache, config, ctx } = deps;
-  const userId = ctx.requesterSenderId ?? "anonymous";
+  const { gateway, userToken, searchCache, menuCache, addressCache, config } = deps;
 
   return {
     name: "takeout",
@@ -37,15 +34,12 @@ export function createTakeoutTool(deps: TakeoutToolDeps) {
         enum: ["search", "menu", "addresses", "preview", "order", "order_status"],
         description: "操作类型",
       }),
-      // search
       keyword: Type.Optional(Type.String({ description: "搜索关键词，如'咖啡'、'轻食'" })),
       lat: Type.Optional(Type.Number({ description: "纬度" })),
       lng: Type.Optional(Type.Number({ description: "经度" })),
-      // menu
       shop_id: Type.Optional(Type.String({ description: "店铺ID" })),
       category: Type.Optional(Type.String({ description: "分类名或索引编号" })),
       item_id: Type.Optional(Type.String({ description: "商品ID，查看详情" })),
-      // addresses
       select_source: Type.Optional(Type.Unsafe<string>({
         type: "string",
         enum: ["poi", "eleme_history"],
@@ -57,7 +51,6 @@ export function createTakeoutTool(deps: TakeoutToolDeps) {
       address_detail: Type.Optional(Type.String({ description: "门牌号/楼层" })),
       address_tag: Type.Optional(Type.String({ description: "标签：home/work/school" })),
       eleme_address_id: Type.Optional(Type.String({ description: "饿了么历史地址ID（eleme_history 来源时必填）" })),
-      // preview
       address_id: Type.Optional(Type.Number({ description: "配送地址ID" })),
       items: Type.Optional(Type.Array(
         Type.Object({
@@ -69,13 +62,11 @@ export function createTakeoutTool(deps: TakeoutToolDeps) {
         { description: "商品列表" },
       )),
       note: Type.Optional(Type.String({ description: "备注" })),
-      // order
       session_id: Type.Optional(Type.String({ description: "来自 preview 的 session_id" })),
-      // order_status
       order_id: Type.Optional(Type.String({ description: "订单ID" })),
     }),
     async execute(_toolCallId: string, params: Record<string, unknown>) {
-      const handlerDeps: HandlerDeps = { gateway, authBridge, searchCache, menuCache, addressCache, config, userId };
+      const handlerDeps: HandlerDeps = { gateway, userToken, searchCache, menuCache, addressCache, config };
       switch (params.action) {
         case "search":        return handleSearch(params, handlerDeps);
         case "menu":          return handleMenu(params, handlerDeps);
