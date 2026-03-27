@@ -9,19 +9,17 @@
     "properties": {
       "gatewayUrl": { "type": "string", "default": "http://127.0.0.1:3100" },
       "apiKey": { "type": "string" },
-      "adminSecret": { "type": "string" },
-      "profilesDataDir": { "type": "string" },
+      "userToken": { "type": "string" },
       "defaultLat": { "type": "number" },
       "defaultLng": { "type": "number" },
       "timeoutMs": { "type": "number", "default": 30000 }
     },
-    "required": ["apiKey", "adminSecret"]
+    "required": ["apiKey", "userToken"]
   },
   "uiHints": {
     "gatewayUrl": { "label": "Gateway URL", "placeholder": "http://127.0.0.1:3100" },
     "apiKey": { "label": "Gateway API Key", "sensitive": true, "placeholder": "${XIADIAN_API_KEY}" },
-    "adminSecret": { "label": "Admin Secret", "sensitive": true, "placeholder": "${ADMIN_SECRET}" },
-    "profilesDataDir": { "label": "Profiles Directory", "placeholder": "/path/to/identity/users" },
+    "userToken": { "label": "User Token", "sensitive": true, "placeholder": "${XIADIAN_USER_TOKEN}" },
     "defaultLat": { "label": "Default Latitude" },
     "defaultLng": { "label": "Default Longitude" }
   }
