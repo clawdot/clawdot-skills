@@ -9,8 +9,9 @@ export async function handleOrder(
   const sessionId = params.session_id as string | undefined;
   if (!sessionId) return textResult("缺少 session_id 参数。");
 
+  const token = await deps.authBridge.requireToken(deps.userId);
   try {
-    const result = await deps.gateway.createOrder(deps.userToken, sessionId);
+    const result = await deps.gateway.createOrder(token, sessionId);
     return textResult(JSON.stringify(result));
   } catch (err) {
     if (err instanceof GatewayError) {
@@ -27,7 +28,8 @@ export async function handleOrderStatus(
   const orderId = params.order_id as string | undefined;
   if (!orderId) return textResult("缺少 order_id 参数。");
 
-  const result = await deps.gateway.getOrderStatus(deps.userToken, orderId);
+  const token = await deps.authBridge.requireToken(deps.userId);
+  const result = await deps.gateway.getOrderStatus(token, orderId);
   return textResult(JSON.stringify(result));
 }
 

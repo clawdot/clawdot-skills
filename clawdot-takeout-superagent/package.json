@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc --watch",
-    "test": "npx tsx --test test/cache.test.ts test/config.test.ts test/gateway-client.test.ts test/tool.test.ts test/trimmer.test.ts test/handlers/*.test.ts",
+    "test": "npx tsx --test test/auth-bridge.test.ts test/cache.test.ts test/config.test.ts test/gateway-client.test.ts test/tool.test.ts test/trimmer.test.ts test/handlers/*.test.ts",
     "test:e2e": "npx tsx --test test/e2e.test.ts",
     "clean": "rm -rf dist"
   },

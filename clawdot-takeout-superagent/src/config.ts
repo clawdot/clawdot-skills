@@ -1,7 +1,8 @@
 export type TakeoutConfig = {
   gatewayUrl: string;
   apiKey: string;
-  userToken: string;
+  adminSecret: string;
+  profilesDataDir: string;
   defaultLat?: number;
   defaultLng?: number;
   timeoutMs: number;
@@ -27,7 +28,9 @@ export function parseConfig(raw: unknown): TakeoutConfig {
   return {
     gatewayUrl,
     apiKey: resolveEnvVars(String(cfg.apiKey ?? "")),
-    userToken: resolveEnvVars(String(cfg.userToken ?? "")),
+    adminSecret: resolveEnvVars(String(cfg.adminSecret ?? "")),
+    profilesDataDir: resolveEnvVars(String(cfg.profilesDataDir ?? ""))
+      .replace(/^~/, process.env.HOME ?? ""),
     defaultLat: typeof cfg.defaultLat === "number" ? cfg.defaultLat : undefined,
     defaultLng: typeof cfg.defaultLng === "number" ? cfg.defaultLng : undefined,
     timeoutMs,
@@ -39,7 +42,8 @@ export const takeoutConfigSchema = {
   uiHints: {
     gatewayUrl: { label: "Gateway URL", placeholder: "http://127.0.0.1:3100" },
     apiKey: { label: "Gateway API Key", sensitive: true, placeholder: "${XIADIAN_API_KEY}" },
-    userToken: { label: "User Token", sensitive: true, placeholder: "${XIADIAN_USER_TOKEN}" },
+    adminSecret: { label: "Admin Secret", sensitive: true, placeholder: "${ADMIN_SECRET}" },
+    profilesDataDir: { label: "Profiles Directory", placeholder: "/path/to/identity/users" },
     defaultLat: { label: "Default Latitude" },
     defaultLng: { label: "Default Longitude" },
   },

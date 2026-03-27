@@ -15,8 +15,8 @@ export async function handleMenu(
   const categoryQuery = params.category as string | undefined;
   const itemId = params.item_id as string | undefined;
 
-  const lat = deps.addressCache.get("addr")?.[0]?.lat ?? deps.config.defaultLat;
-  const lng = deps.addressCache.get("addr")?.[0]?.lng ?? deps.config.defaultLng;
+  const lat = deps.addressCache.get(`addr:${deps.userId}`)?.[0]?.lat ?? deps.config.defaultLat;
+  const lng = deps.addressCache.get(`addr:${deps.userId}`)?.[0]?.lng ?? deps.config.defaultLng;
 
   if (lat == null || lng == null) {
     return textResult("无法确定位置，请先查询地址。");
@@ -26,7 +26,8 @@ export async function handleMenu(
 
   let detail = deps.menuCache.get(cacheKey);
   if (!detail) {
-    detail = await deps.gateway.getShopDetail(deps.userToken, shopId, lat, lng);
+    const token = await deps.authBridge.requireToken(deps.userId);
+    detail = await deps.gateway.getShopDetail(token, shopId, lat, lng);
     deps.menuCache.set(cacheKey, detail, MENU_TTL_MS);
   }
 

@@ -28,6 +28,7 @@ describe("GatewayClient", () => {
     client = new GatewayClient({
       baseUrl: "http://localhost:3100",
       apiKey: "clw_test123",
+      adminSecret: "admin_secret",
       timeoutMs: 5000,
     });
   });
@@ -45,11 +46,15 @@ describe("GatewayClient", () => {
     assert.equal(headers["X-User-Token"], "tok_user");
   });
 
-  it("does not send X-Admin-Secret header", async () => {
-    mockFetch({ shops: [] });
-    await client.searchShops("tok_user", 32.0, 118.7);
-    const headers = lastFetchArgs!.init.headers as Record<string, string>;
-    assert.equal(headers["X-Admin-Secret"], undefined);
+  it("trustedBind sends POST with admin secret header", async () => {
+    mockFetch({ user_token: "tok_new", expires_at: "2026-04-03T00:00:00Z", is_new: true });
+    const result = await client.trustedBind("13800000000");
+    assert.ok(lastFetchArgs);
+    assert.ok(lastFetchArgs.url.includes("/api/v1/user/bind/trusted"));
+    assert.equal(lastFetchArgs.init.method, "POST");
+    const headers = lastFetchArgs.init.headers as Record<string, string>;
+    assert.equal(headers["X-Admin-Secret"], "admin_secret");
+    assert.equal(result.user_token, "tok_new");
   });
 
   it("getShopDetail sends correct GET", async () => {

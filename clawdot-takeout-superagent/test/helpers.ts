@@ -1,4 +1,5 @@
 import type { GatewayClient } from "../src/gateway-client.js";
+import type { AuthBridge } from "../src/auth-bridge.js";
 import type { TakeoutConfig } from "../src/config.js";
 import { TtlCache } from "../src/cache.js";
 import type { SearchShopsResponse, ShopDetailResponse, ListAddressesResponse, SearchAddressesResponse, SelectAddressResponse, Address } from "../src/types.js";
@@ -7,12 +8,28 @@ export function mockConfig(overrides: Partial<TakeoutConfig> = {}): TakeoutConfi
   return {
     gatewayUrl: "http://localhost:3100",
     apiKey: "clw_test",
-    userToken: "tok_user",
+    adminSecret: "secret",
+    profilesDataDir: "",
     defaultLat: 32.0356,
     defaultLng: 118.7621,
     timeoutMs: 5000,
     ...overrides,
   };
+}
+
+export function mockAuthBridge(token = "tok_user"): AuthBridge {
+  return { requireToken: async () => token } as any;
+}
+
+export function mockToolCtx(overrides: Record<string, unknown> = {}) {
+  return {
+    requesterSenderId: "user123",
+    sessionKey: "agent:clawdot:feishu:direct:user123",
+    messageChannel: "feishu",
+    sessionId: "sess_1",
+    agentId: "clawdot",
+    ...overrides,
+  } as any;
 }
 
 type MockGatewayOverrides = {
@@ -33,5 +50,6 @@ export function mockGateway(overrides: MockGatewayOverrides = {}): GatewayClient
     previewOrder: async () => ({ session_id: "s1", shop_name: "", items: [], packing_fee: 0, delivery_fee: 0, discount: 0, total: 0, estimated_delivery_time: "" }),
     createOrder: async () => ({ order_id: "o1", status: "created", shop_name: "", total_amount: 0 }),
     getOrderStatus: async () => ({ order_id: "o1", status: "created", shop_name: "", total_amount: 0, created_at: null }),
+    trustedBind: async () => ({ user_token: "tok", expires_at: "", is_new: true }),
   } as any;
 }

@@ -40,23 +40,29 @@ if (!GATEWAY_URL || !API_KEY || !USER_TOKEN) {
 const gateway = new GatewayClient({
   baseUrl: GATEWAY_URL!,
   apiKey: API_KEY!,
+  adminSecret: "",
   timeoutMs: 30_000,
 });
 
+// Bypass AuthBridge — use the token directly
+const authBridge = { requireToken: async () => USER_TOKEN! } as any;
+
 const tool = createTakeoutTool({
   gateway,
-  userToken: USER_TOKEN!,
+  authBridge,
   searchCache: new TtlCache<TrimmedSearchResult>(100),
   menuCache: new TtlCache<ShopDetailResponse>(50),
   addressCache: new TtlCache<Address[]>(100),
   config: {
     gatewayUrl: GATEWAY_URL!,
     apiKey: API_KEY!,
-    userToken: USER_TOKEN!,
+    adminSecret: "",
+    profilesDataDir: "",
     defaultLat: DEFAULT_LAT,
     defaultLng: DEFAULT_LNG,
     timeoutMs: 30_000,
   },
+  ctx: { requesterSenderId: "e2e-test" },
 });
 
 function parse(result: { content: Array<{ text: string }> }): any {

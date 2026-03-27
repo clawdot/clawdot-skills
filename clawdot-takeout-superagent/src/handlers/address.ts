@@ -8,10 +8,11 @@ export async function handleAddresses(
   params: Record<string, unknown>,
   deps: HandlerDeps,
 ): Promise<ToolResult> {
+  const token = await deps.authBridge.requireToken(deps.userId);
   const selectSource = params.select_source as string | undefined;
 
   if (selectSource) {
-    return handleSelectAddress(params, deps);
+    return handleSelectAddress(params, token, deps);
   }
 
   const keyword = params.keyword as string | undefined;
@@ -22,7 +23,7 @@ export async function handleAddresses(
       return textResult("搜索地址时需要提供 lat 和 lng");
     }
     try {
-      const result = await deps.gateway.searchAddresses(deps.userToken, keyword, lat, lng);
+      const result = await deps.gateway.searchAddresses(token, keyword, lat, lng);
       return textResult(JSON.stringify(result));
     } catch (err) {
       if (err instanceof GatewayError) return textResult(`地址搜索失败：${err.message}`);
@@ -32,8 +33,8 @@ export async function handleAddresses(
 
   // List saved addresses
   try {
-    const result = await deps.gateway.searchAddresses(deps.userToken);
-    deps.addressCache.delete("addr");
+    const result = await deps.gateway.searchAddresses(token);
+    deps.addressCache.delete(`addr:${deps.userId}`);
     if (result.saved?.length) {
       const asAddresses = result.saved.map((s) => ({
         id: s.id,
@@ -41,7 +42,7 @@ export async function handleAddresses(
         lat: s.lat,
         lng: s.lng,
       }));
-      deps.addressCache.set("addr", asAddresses, ADDRESS_TTL_MS);
+      deps.addressCache.set(`addr:${deps.userId}`, asAddresses, ADDRESS_TTL_MS);
     }
     return textResult(JSON.stringify(result));
   } catch (err) {
@@ -52,12 +53,13 @@ export async function handleAddresses(
 
 async function handleSelectAddress(
   params: Record<string, unknown>,
+  token: string,
   deps: HandlerDeps,
 ): Promise<ToolResult> {
   const source = params.select_source as "poi" | "eleme_history";
 
   try {
-    const result = await deps.gateway.selectAddress(deps.userToken, {
+    const result = await deps.gateway.selectAddress(token, {
       source,
       poi_data: params.poi_data as Record<string, unknown> | undefined,
       contact_name: params.contact_name as string | undefined,
@@ -68,7 +70,7 @@ async function handleSelectAddress(
     });
 
     // Invalidate address cache so subsequent operations pick up the new address
-    deps.addressCache.delete("addr");
+    deps.addressCache.delete(`addr:${deps.userId}`);
 
     return textResult(JSON.stringify(result));
   } catch (err) {

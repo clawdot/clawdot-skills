@@ -15,15 +15,16 @@ const USER_TOKEN = process.env.USER_TOKEN!;
 const DEFAULT_LAT = Number(process.env.DEFAULT_LAT) || 31.2304;
 const DEFAULT_LNG = Number(process.env.DEFAULT_LNG) || 121.4737;
 
-const gateway = new GatewayClient({ baseUrl: GATEWAY_URL, apiKey: API_KEY, timeoutMs: 30_000 });
+const gateway = new GatewayClient({ baseUrl: GATEWAY_URL, apiKey: API_KEY, adminSecret: "", timeoutMs: 30_000 });
 const addressCache = new TtlCache<Address[]>(100);
 const tool = createTakeoutTool({
   gateway,
-  userToken: USER_TOKEN,
+  authBridge: { requireToken: async () => USER_TOKEN } as any,
   searchCache: new TtlCache<TrimmedSearchResult>(100),
   menuCache: new TtlCache<ShopDetailResponse>(50),
   addressCache,
-  config: { gatewayUrl: GATEWAY_URL, apiKey: API_KEY, userToken: USER_TOKEN, defaultLat: 31.2304, defaultLng: 121.4737, timeoutMs: 30_000 },
+  config: { gatewayUrl: GATEWAY_URL, apiKey: API_KEY, adminSecret: "", profilesDataDir: "", defaultLat: 31.2304, defaultLng: 121.4737, timeoutMs: 30_000 },
+  ctx: { requesterSenderId: "e2e" },
 });
 
 function exec(id: string, params: Record<string, unknown>) {
@@ -77,14 +78,14 @@ async function run() {
   if (!selectResult?.id) { console.error("All address sources failed"); process.exit(1); }
 
   // Gateway may return null lat/lng for newly created addresses — use search coordinates as fallback
-  const addrLat = Number.isFinite(selectResult.lat) ? selectResult.lat : DEFAULT_LAT;
-  const addrLng = Number.isFinite(selectResult.lng) ? selectResult.lng : DEFAULT_LNG;
+  const addrLat = Number.isFinite(selectResult.lat) ? selectResult.lat : lat;
+  const addrLng = Number.isFinite(selectResult.lng) ? selectResult.lng : lng;
   await continueFlow(selectResult.id, addrLat, addrLng);
 }
 
 async function continueFlow(addressId: number, lat: number, lng: number) {
   // Seed address cache with correct coordinates (gateway may return null lat/lng for new addresses)
-  addressCache.set("addr", [{ id: addressId, address: "e2e-test", lat, lng }], 600_000);
+  addressCache.set("addr:e2e", [{ id: addressId, address: "e2e-test", lat, lng }], 600_000);
 
   console.log("\n=== Step 2: Search shops ===");
   const shops = parse(await exec("2", { action: "search", keyword: "咖啡", lat, lng }));
