@@ -85,6 +85,7 @@ class GatewayClient:
             "Authorization": f"Bearer {self.api_key}",
             "X-User-Token": self.user_token,
             "Content-Type": "application/json",
+            "User-Agent": "ClawDot-Takeout/0.1",
         }
         data = json.dumps(body).encode() if body is not None else None
         req = Request(url, data=data, headers=headers, method=method)
@@ -310,9 +311,11 @@ MENU_TTL = 10 * 60        # 10 minutes
 ADDRESS_TTL = 30 * 60     # 30 minutes
 
 def normalize_address(addr: dict) -> dict:
-    """Ensure lat/lng are floats (Gateway sometimes returns strings)."""
-    addr["lat"] = float(addr.get("lat", 0))
-    addr["lng"] = float(addr.get("lng", 0))
+    """Ensure lat/lng are floats (Gateway sometimes returns strings or null)."""
+    lat = addr.get("lat")
+    lng = addr.get("lng")
+    addr["lat"] = float(lat) if lat is not None else 0.0
+    addr["lng"] = float(lng) if lng is not None else 0.0
     return addr
 
 def get_cached_address_coords(cache: Cache) -> tuple[float | None, float | None]:
