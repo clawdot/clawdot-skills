@@ -1,0 +1,36 @@
+{
+  "shops": [
+    {
+      "id": "E15074238835124929109",
+      "name": "瑞幸咖啡(新街口店)",
+      "brand_name": "瑞幸咖啡",
+      "image": "https://example.com/luckin.jpg",
+      "distance": "500m",
+      "rating": "4.8",
+      "delivery_fee": 3.0,
+      "delivery_time_minutes": 25,
+      "min_order_amount": 15.0,
+      "is_ad": false,
+      "items": [
+        { "name": "生椰拿铁", "price": 29.0, "original_price": 35.0, "description": "", "image": "https://example.com/a.jpg", "packing_fee": 1.0, "item_type": "NORMAL" },
+        { "name": "美式咖啡", "price": 21.0, "original_price": null, "description": "", "image": "https://example.com/b.jpg", "packing_fee": 1.0, "item_type": "NORMAL" },
+        { "name": "拿铁", "price": 27.0, "original_price": null, "description": "", "image": "https://example.com/c.jpg", "packing_fee": 1.0, "item_type": "NORMAL" }
+      ]
+    },
+    {
+      "id": "E98765432101234567890",
+      "name": "星巴克(珠江路店)",
+      "brand_name": "星巴克",
+      "image": "https://example.com/starbucks.jpg",
+      "distance": "1.2km",
+      "rating": "4.6",
+      "delivery_fee": 5.0,
+      "delivery_time_minutes": 35,
+      "min_order_amount": 20.0,
+      "is_ad": true,
+      "items": [
+        { "name": "拿铁", "price": 38.0, "original_price": null, "description": "", "image": "https://example.com/d.jpg", "packing_fee": 2.0, "item_type": "NORMAL" }
+      ]
+    }
+  ]
+}
