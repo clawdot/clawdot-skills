@@ -22,8 +22,7 @@ export async function handlePreview(
   }
 
   const note = params.note as string | undefined;
-  const token = await deps.authBridge.requireToken(deps.userId);
-  const addresses = await resolveAddresses(token, deps);
+  const addresses = await resolveAddresses(deps);
   const addr = addresses.find((a) => a.id === addressId);
   if (!addr) {
     return textResult(`未找到地址 ${addressId}。可用地址：${addresses.map(a => `${a.id}(${a.address})`).join("、") || "无"}`);
@@ -37,7 +36,7 @@ export async function handlePreview(
   const cacheKey = `menu:${shopId}:${addr.lat},${addr.lng}`;
   let detail = deps.menuCache.get(cacheKey);
   if (!detail) {
-    detail = await deps.gateway.getShopDetail(token, shopId, addr.lat, addr.lng);
+    detail = await deps.gateway.getShopDetail(deps.userToken, shopId, addr.lat, addr.lng);
     deps.menuCache.set(cacheKey, detail, MENU_TTL_MS);
   }
 
@@ -70,16 +69,15 @@ export async function handlePreview(
     note,
   };
 
-  const result = await deps.gateway.previewOrder(token, body);
+  const result = await deps.gateway.previewOrder(deps.userToken, body);
   return textResult(JSON.stringify(result));
 }
 
-async function resolveAddresses(token: string, deps: HandlerDeps): Promise<Address[]> {
-  const cacheKey = `addr:${deps.userId}`;
-  const cached = deps.addressCache.get(cacheKey);
+async function resolveAddresses(deps: HandlerDeps): Promise<Address[]> {
+  const cached = deps.addressCache.get("addr");
   if (cached) return cached;
-  const resp = await deps.gateway.listAddresses(token);
-  deps.addressCache.set(cacheKey, resp.addresses, ADDRESS_TTL_MS);
+  const resp = await deps.gateway.listAddresses(deps.userToken);
+  deps.addressCache.set("addr", resp.addresses, ADDRESS_TTL_MS);
   return resp.addresses;
 }
 

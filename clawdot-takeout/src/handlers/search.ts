@@ -9,10 +9,10 @@ export async function handleSearch(
   deps: HandlerDeps,
 ): Promise<ToolResult> {
   const lat = (params.lat as number | undefined)
-    ?? deps.addressCache.get(`addr:${deps.userId}`)?.[0]?.lat
+    ?? deps.addressCache.get("addr")?.[0]?.lat
     ?? deps.config.defaultLat;
   const lng = (params.lng as number | undefined)
-    ?? deps.addressCache.get(`addr:${deps.userId}`)?.[0]?.lng
+    ?? deps.addressCache.get("addr")?.[0]?.lng
     ?? deps.config.defaultLng;
 
   if (lat == null || lng == null) {
@@ -24,8 +24,7 @@ export async function handleSearch(
   const cached = deps.searchCache.get(cacheKey);
   if (cached) return textResult(JSON.stringify(cached));
 
-  const token = await deps.authBridge.requireToken(deps.userId);
-  const raw = await deps.gateway.searchShops(token, lat, lng, keyword);
+  const raw = await deps.gateway.searchShops(deps.userToken, lat, lng, keyword);
   const trimmed = trimSearchResults(raw);
   deps.searchCache.set(cacheKey, trimmed, SEARCH_TTL_MS);
   return textResult(JSON.stringify(trimmed));
