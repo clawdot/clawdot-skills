@@ -51,13 +51,58 @@ src/
 
 Mirrors Gateway's `POST /addresses/search` and `POST /addresses/select`.
 
-**Sub-operations** (determined by parameters present):
+**Important**: The `action` enum in the tool parameter schema must be updated to include `"addresses"`:
+```typescript
+enum: ["search", "menu", "addresses", "preview", "order", "order_status"]
+```
 
-| Parameters | Behavior |
-|-----------|----------|
-| `action=addresses` only | List saved addresses (keyword="") |
-| `+ keyword, lat, lng` | Search: saved + POI suggestions + Eleme history |
-| `+ select_source, poi_data/eleme_address_id` | Save a suggestion as gateway address |
+**Sub-operation routing** (in `handlers/address.ts`):
+
+```typescript
+export async function handleAddresses(params, deps): Promise<ToolResult> {
+  const token = await deps.authBridge.requireToken(deps.userId);
+  const selectSource = params.select_source as string | undefined;
+
+  // Route 1: select_source present → save address
+  if (selectSource) {
+    // For "poi": poi_data required, contact_name/contact_phone required
+    // For "eleme_history": eleme_address_id required, contact info optional
+    return handleSelectAddress(params, token, deps);
+  }
+
+  // Route 2: keyword present → search (saved + POI + history)
+  const keyword = params.keyword as string | undefined;
+  if (keyword) {
+    // lat/lng required when keyword is provided
+    const lat = params.lat as number | undefined;
+    const lng = params.lng as number | undefined;
+    if (lat == null || lng == null) {
+      return textResult("搜索地址时需要提供 lat 和 lng");
+    }
+    const result = await deps.gateway.searchAddresses(token, keyword, lat, lng);
+    return textResult(JSON.stringify(result));
+  }
+
+  // Route 3: no keyword, no select → list saved addresses
+  const result = await deps.gateway.searchAddresses(token);
+  // Invalidate address cache so subsequent operations use fresh data
+  deps.addressCache.delete(`addr:${deps.userId}`);
+  // Cache the saved addresses for location fallback in other handlers
+  if (result.saved?.length) {
+    deps.addressCache.set(`addr:${deps.userId}`, result.saved, ADDRESS_TTL_MS);
+  }
+  return textResult(JSON.stringify(result));
+}
+```
+
+**Parameter requirements by select_source:**
+
+| source | Required | Optional |
+|--------|----------|----------|
+| `poi` | `poi_data`, `contact_name`, `contact_phone` | `address_detail`, `address_tag` |
+| `eleme_history` | `eleme_address_id` | `contact_name`, `contact_phone`, `address_detail`, `address_tag` |
+
+**Cache invalidation**: After a successful `selectAddress`, invalidate the address cache for the user (`deps.addressCache.delete(\`addr:${deps.userId}\`)`), so subsequent operations pick up the new address.
 
 **Tool parameter additions:**
 ```typescript
@@ -68,12 +113,12 @@ select_source: Type.Optional(Type.Unsafe<string>({
   type: "string", enum: ["poi", "eleme_history"],
   description: "地址来源：poi 或 eleme_history"
 })),
-poi_data: Type.Optional(Type.Object({}, { additionalProperties: true, description: "POI 数据对象" })),
-contact_name: Type.Optional(Type.String({ description: "收件人姓名" })),
-contact_phone: Type.Optional(Type.String({ description: "收件人电话" })),
+poi_data: Type.Optional(Type.Object({}, { additionalProperties: true, description: "POI 数据对象（来自 search 结果的 suggestions）" })),
+contact_name: Type.Optional(Type.String({ description: "收件人姓名（poi 来源时必填）" })),
+contact_phone: Type.Optional(Type.String({ description: "收件人电话（poi 来源时必填）" })),
 address_detail: Type.Optional(Type.String({ description: "门牌号/楼层" })),
 address_tag: Type.Optional(Type.String({ description: "标签：home/work/school" })),
-eleme_address_id: Type.Optional(Type.String({ description: "饿了么历史地址ID" })),
+eleme_address_id: Type.Optional(Type.String({ description: "饿了么历史地址ID（eleme_history 来源时必填）" })),
 ```
 
 ### 3. Gateway Client Extensions
@@ -95,6 +140,56 @@ async selectAddress(
 
 Request format aligns with server's `POST /addresses/search` and `POST /addresses/select`.
 
+**New types in `types.ts`:**
+
+```typescript
+// Gateway returns saved addresses + search suggestions
+export interface SearchAddressesResponse {
+  saved: Array<{
+    id: number;           // gateway address ID — use this for ordering
+    address: string;
+    detail: string;
+    contact_name: string;
+    contact_phone: string;
+    tag: string;
+    lat: number;
+    lng: number;
+  }>;
+  suggestions?: Array<{
+    source: "poi" | "eleme_history";
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+    poi_data?: Record<string, unknown>;   // pass back to selectAddress for "poi" source
+    eleme_address_id?: string;            // pass back to selectAddress for "eleme_history" source
+  }>;
+}
+
+export interface SelectAddressRequest {
+  source: "poi" | "eleme_history";
+  poi_data?: Record<string, unknown>;
+  contact_name?: string;
+  contact_phone?: string;
+  address?: string;
+  detail?: string;
+  tag?: string;
+  lat?: number;
+  lng?: number;
+  eleme_address_id?: string;
+}
+
+export interface SelectAddressResponse {
+  id: number;             // gateway address ID — use this for ordering
+  address: string;
+  detail: string;
+  lat: number;
+  lng: number;
+}
+```
+
+**Note**: `Address.id` type changes from `string` to `number` throughout `types.ts` to align with the gateway's integer primary key.
+
 ### 4. Bug Fixes
 
 #### 4.1 Preview: cache miss → fetch menu
@@ -106,8 +201,11 @@ menuCache miss → sku_id = raw.item_id → order fails
 
 Fixed behavior:
 ```
-menuCache miss → gateway.getShopDetail() → populate cache → resolve sku_id correctly
+menuCache miss → gateway.getShopDetail(token, shopId, addr.lat, addr.lng)
+              → populate cache → resolve sku_id correctly
 ```
+
+**Important**: Use `addr.lat` and `addr.lng` from the already-resolved address object (which is available at this point in the preview handler, after the address lookup). This ensures the menu data matches the delivery zone.
 
 #### 4.2 address_id type: string → number
 
@@ -117,34 +215,51 @@ menuCache miss → gateway.getShopDetail() → populate cache → resolve sku_id
 
 #### 4.3 lat/lng runtime coercion
 
-Add `Number()` conversion when reading address lat/lng from cache or API responses:
+Coerce lat/lng at the **gateway-client response parsing layer** rather than in each handler, to avoid fragile duplication across handlers:
 
 ```typescript
-const lat = Number(addr.lat);
-const lng = Number(addr.lng);
+// In gateway-client.ts — add a response normalizer
+function normalizeAddress<T extends { lat: unknown; lng: unknown }>(addr: T): T & { lat: number; lng: number } {
+  return { ...addr, lat: Number(addr.lat), lng: Number(addr.lng) };
+}
+```
+
+Apply this normalizer in `listAddresses`, `searchAddresses`, and `selectAddress` response parsing. Handlers then receive guaranteed `number` typed coordinates.
+
+Additionally, each handler that uses lat/lng should validate the values:
+```typescript
 if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
   return textResult("地址坐标无效");
 }
 ```
 
-Applied in: search handler (address fallback), menu handler, preview handler.
+Also fix the menu handler's `lat: 0, lng: 0` fallback — when no address or default coordinates are available, return an error instead of sending invalid coordinates to the gateway:
+```typescript
+if (lat == null || lng == null) {
+  return textResult("无法确定位置，请先查询地址。");
+}
+```
 
 #### 4.4 Extended error handling in order handler
+
+Match both English and Chinese error patterns from the gateway (Eleme errors may come in either language):
 
 ```typescript
 function friendlyOrderError(err: GatewayError): string {
   const msg = err.message.toLowerCase();
-  if (msg.includes("expired") || msg.includes("not found"))
+  if (msg.includes("expired") || msg.includes("not found") || msg.includes("过期") || msg.includes("不存在"))
     return "订单会话已过期或已使用，请重新预览下单。";
-  if (msg.includes("closed") || msg.includes("not open"))
+  if (msg.includes("closed") || msg.includes("not open") || msg.includes("休息") || msg.includes("未营业"))
     return "店铺暂未营业，请稍后再试。";
-  if (msg.includes("out of stock") || msg.includes("sold out"))
+  if (msg.includes("out of stock") || msg.includes("sold out") || msg.includes("售罄") || msg.includes("缺货"))
     return "部分商品已售罄，请调整后重试。";
-  if (msg.includes("min order") || msg.includes("minimum"))
+  if (msg.includes("min order") || msg.includes("minimum") || msg.includes("起送"))
     return "未达起送价，请加点别的~";
   return `下单失败：${err.message}`;
 }
 ```
+
+**Address handler error handling**: Add similar friendly error mapping for address operations (search returns empty, select fails due to missing POI data, etc.). Pattern: catch `GatewayError` in address handler, return Chinese friendly message.
 
 ### 5. phone-resolver Refactor
 
@@ -186,7 +301,9 @@ Refactored:
 
 ### 7. Handler Interface Contract
 
-All handlers share a common signature:
+All handlers share a common signature.
+
+**Note**: The current code uses `ctx: { requesterSenderId?: string }` in `TakeoutToolDeps`. The refactor narrows this to just `userId: string`, extracted at the router level via `ctx.requesterSenderId ?? "anonymous"`. This is a deliberate simplification — no handler currently needs other `ctx` fields.
 
 ```typescript
 // handlers/shared.ts
@@ -237,7 +354,12 @@ async execute(_toolCallId: string, params: Record<string, unknown>) {
 }
 ```
 
-### 8. Cleanup
+### 8. Implementation Notes
+
+- All imports in new `handlers/*.ts` files must use `.js` extensions (e.g., `import { textResult } from "./shared.js"`), consistent with the existing codebase's ESM conventions.
+- The `ToolResult` type should match whatever the OpenClaw plugin SDK expects for tool return values. Currently the codebase uses `{ content: [{ type: "text", text }], details: {} }` — verify this matches the SDK's type definition during implementation.
+
+### 9. Cleanup
 
 - Remove MCP server config from `.claude/settings.json` (the `clawdot-gateway` entry)
 - Remove SKILL.md references to curl, Headers, and `reference_clawdot_credentials.md`
@@ -282,3 +404,6 @@ Existing tests in `test/tool.test.ts` split to match handler structure. Import p
 | New address action untested against real Gateway | Unit tests with mocked gateway; manual E2E test before release |
 | SKILL.md changes degrade eval scores | Re-run existing 3 evals after rewrite to verify no regression |
 | phone-resolver async change introduces race conditions | TTL cache serializes access per key; no concurrent writes to same key |
+| Address cache stale after select | Explicit cache invalidation after selectAddress in address handler |
+| Gateway error messages in Chinese not matched | Error handler includes both English and Chinese patterns |
+| Menu handler sends lat=0,lng=0 when no location | Changed to return error instead of sending invalid coordinates |
