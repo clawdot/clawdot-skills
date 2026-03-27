@@ -19,33 +19,29 @@ function normalizeAddress<T extends { lat: unknown; lng: unknown }>(addr: T): T 
 export interface GatewayClientOptions {
   baseUrl: string;
   apiKey: string;
-  adminSecret: string;
   timeoutMs?: number;
 }
 
 export class GatewayClient {
   private baseUrl: string;
   private apiKey: string;
-  private adminSecret: string;
   private timeoutMs: number;
 
   constructor(opts: GatewayClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, "");
     this.apiKey = opts.apiKey;
-    this.adminSecret = opts.adminSecret;
     this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
   private async request<T>(
     path: string,
-    opts: { method?: string; body?: unknown; userToken?: string; admin?: boolean } = {},
+    opts: { method?: string; body?: unknown; userToken?: string } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {
       "Authorization": `Bearer ${this.apiKey}`,
       "Content-Type": "application/json",
     };
     if (opts.userToken) headers["X-User-Token"] = opts.userToken;
-    if (opts.admin) headers["X-Admin-Secret"] = this.adminSecret;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -68,14 +64,6 @@ export class GatewayClient {
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  async trustedBind(phone: string): Promise<{ user_token: string; expires_at: string; is_new: boolean }> {
-    return this.request("/api/v1/user/bind/trusted", {
-      method: "POST",
-      body: { phone },
-      admin: true,
-    });
   }
 
   async searchShops(userToken: string, lat: number, lng: number, keyword?: string): Promise<SearchShopsResponse> {
