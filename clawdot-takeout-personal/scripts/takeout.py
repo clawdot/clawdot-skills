@@ -439,9 +439,10 @@ def action_preview(args: argparse.Namespace, gw: GatewayClient, cache: Cache, co
     addrs = cache.get("addr:user")
     if not addrs:
         try:
-            resp = gw.list_addresses()
-            addrs = [normalize_address(a) for a in resp.get("addresses", [])]
-            if addrs:
+            resp = gw.search_addresses()
+            saved = [normalize_address(a) for a in resp.get("saved", [])]
+            if saved:
+                addrs = [{"id": a["id"], "address": a["address"], "lat": a["lat"], "lng": a["lng"]} for a in saved]
                 cache.set("addr:user", addrs, ADDRESS_TTL)
         except GatewayError as e:
             die(f"获取地址失败：{friendly_error(e)}")
