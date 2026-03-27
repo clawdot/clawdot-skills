@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTakeoutTool } from "../src/tool.js";
 import { TtlCache } from "../src/cache.js";
-import { mockConfig, mockAuthBridge, mockToolCtx } from "./helpers.js";
+import { mockConfig } from "./helpers.js";
 import type { SearchShopsResponse, ShopDetailResponse, Address, PreviewOrderResponse } from "../src/types.js";
 import { GatewayError } from "../src/types.js";
 
@@ -33,7 +33,7 @@ function makeTool(gatewayOverrides: Record<string, any> = {}) {
   const menuCache = new TtlCache<ShopDetailResponse>(50);
   const addressCache = new TtlCache<Address[]>(100);
   menuCache.set("menu:E12345:32.0356,118.7621", detailFixture, 600_000);
-  addressCache.set("addr:user123", addressFixture, 600_000);
+  addressCache.set("addr", addressFixture, 600_000);
 
   const gateway = {
     searchShops: async () => searchFixture,
@@ -44,16 +44,14 @@ function makeTool(gatewayOverrides: Record<string, any> = {}) {
     previewOrder: async () => previewResponse,
     createOrder: async () => ({ order_id: "ord_123", status: "created", shop_name: "瑞幸", total_amount: 28 }),
     getOrderStatus: async () => ({ order_id: "ord_123", status: "created", shop_name: "瑞幸", total_amount: 28, created_at: "2026-03-27T12:00:00" }),
-    trustedBind: async () => ({ user_token: "tok", expires_at: "", is_new: true }),
     ...gatewayOverrides,
   } as any;
 
   return createTakeoutTool({
     gateway,
-    authBridge: mockAuthBridge(),
+    userToken: "tok_user",
     searchCache, menuCache, addressCache,
     config: mockConfig(),
-    ctx: mockToolCtx(),
   });
 }
 
@@ -92,16 +90,15 @@ describe("takeout action=search", () => {
     const searchCache = new TtlCache<any>(100);
     const menuCache = new TtlCache<ShopDetailResponse>(50);
     const addressCache = new TtlCache<Address[]>(100);
-    addressCache.set("addr:user123", [{ id: 1, address: "test", lat: 31.5, lng: 117.2 }], 600_000);
+    addressCache.set("addr", [{ id: 1, address: "test", lat: 31.5, lng: 117.2 }], 600_000);
 
     const tool = createTakeoutTool({
       gateway: {
         searchShops: async (_t: any, lat: any) => { capturedLat = lat; return searchFixture; },
       } as any,
-      authBridge: mockAuthBridge(),
+      userToken: "tok_user",
       searchCache, menuCache, addressCache,
       config: mockConfig({ defaultLat: undefined, defaultLng: undefined }),
-      ctx: mockToolCtx(),
     });
     await tool.execute("c1", { action: "search" });
     assert.equal(capturedLat, 31.5);
@@ -110,10 +107,9 @@ describe("takeout action=search", () => {
   it("returns error when no location available", async () => {
     const tool = createTakeoutTool({
       gateway: { searchShops: async () => searchFixture } as any,
-      authBridge: mockAuthBridge(),
+      userToken: "tok_user",
       searchCache: new TtlCache(100), menuCache: new TtlCache(50), addressCache: new TtlCache(100),
       config: mockConfig({ defaultLat: undefined, defaultLng: undefined }),
-      ctx: mockToolCtx(),
     });
     const result = await tool.execute("c1", { action: "search" });
     assert.ok(result.content[0].text.includes("无法确定配送位置"));
@@ -165,7 +161,7 @@ describe("takeout action=menu", () => {
     const tool = makeTool({ getShopDetail: async () => { fetches++; return detailFixture; } });
     await tool.execute("c1", { action: "menu", shop_id: "E12345" });
     await tool.execute("c2", { action: "menu", shop_id: "E12345", category: "经典咖啡" });
-    assert.equal(fetches, 0); // served from pre-populated cache
+    assert.equal(fetches, 0);
   });
 });
 

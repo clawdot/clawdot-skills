@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { handlePreview } from "../../src/handlers/preview.js";
 import type { HandlerDeps } from "../../src/handlers/shared.js";
 import { TtlCache } from "../../src/cache.js";
-import { mockConfig, mockAuthBridge } from "../helpers.js";
+import { mockConfig } from "../helpers.js";
 import type { Address, ShopDetailResponse, TrimmedSearchResult, PreviewOrderResponse } from "../../src/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +27,7 @@ const previewResponse: PreviewOrderResponse = {
 
 function makeDeps(gatewayOverrides: Record<string, any> = {}): HandlerDeps {
   const addressCache = new TtlCache<Address[]>(100);
-  addressCache.set("addr:user123", addressFixture, 600_000);
+  addressCache.set("addr", addressFixture, 600_000);
 
   const gateway = {
     getShopDetail: async () => detailFixture,
@@ -38,12 +38,11 @@ function makeDeps(gatewayOverrides: Record<string, any> = {}): HandlerDeps {
 
   return {
     gateway,
-    authBridge: mockAuthBridge(),
+    userToken: "tok_user",
     searchCache: new TtlCache<TrimmedSearchResult>(100),
     menuCache: new TtlCache<ShopDetailResponse>(50),
     addressCache,
     config: mockConfig(),
-    userId: "user123",
   };
 }
 
@@ -55,7 +54,6 @@ describe("handlePreview", () => {
       getShopDetail: async () => { fetchCalled = true; return detailFixture; },
       previewOrder: async (_t: any, body: any) => { capturedBody = body; return previewResponse; },
     });
-    // No menu in cache — should trigger fetch
     const result = await handlePreview({
       action: "preview", shop_id: "E12345", address_id: 1,
       items: [{ item_id: "670685166551", quantity: 1 }],
@@ -77,7 +75,7 @@ describe("handlePreview", () => {
 
   it("validates lat/lng are finite", async () => {
     const deps = makeDeps();
-    deps.addressCache.set("addr:user123", [{ id: 1, address: "bad", lat: NaN, lng: NaN }], 600_000);
+    deps.addressCache.set("addr", [{ id: 1, address: "bad", lat: NaN, lng: NaN }], 600_000);
 
     const result = await handlePreview({
       action: "preview", shop_id: "E12345", address_id: 1,
@@ -92,7 +90,6 @@ describe("handlePreview", () => {
       action: "preview", shop_id: "E12345", address_id: 1,
       items: [{ item_id: "670685166551", quantity: 1 }],
     }, deps);
-    // Should be cached now
     const cached = deps.menuCache.get("menu:E12345:32.0356,118.7621");
     assert.ok(cached, "menu should be cached after fetch");
   });

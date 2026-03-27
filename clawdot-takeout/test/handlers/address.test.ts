@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { handleAddresses } from "../../src/handlers/address.js";
 import type { HandlerDeps } from "../../src/handlers/shared.js";
 import { TtlCache } from "../../src/cache.js";
-import { mockConfig, mockAuthBridge } from "../helpers.js";
+import { mockConfig } from "../helpers.js";
 import type { Address, ShopDetailResponse, TrimmedSearchResult, SearchAddressesResponse, SelectAddressResponse } from "../../src/types.js";
 import { GatewayError } from "../../src/types.js";
 
@@ -22,12 +22,11 @@ function makeDeps(gatewayOverrides: Record<string, any> = {}): HandlerDeps {
 
   return {
     gateway,
-    authBridge: mockAuthBridge(),
+    userToken: "tok_user",
     searchCache: new TtlCache<TrimmedSearchResult>(100),
     menuCache: new TtlCache<ShopDetailResponse>(50),
     addressCache: new TtlCache<Address[]>(100),
     config: mockConfig(),
-    userId: "user123",
   };
 }
 
@@ -43,7 +42,7 @@ describe("handleAddresses", () => {
   it("caches addresses after listing", async () => {
     const deps = makeDeps();
     await handleAddresses({}, deps);
-    const cached = deps.addressCache.get("addr:user123");
+    const cached = deps.addressCache.get("addr");
     assert.ok(cached);
     assert.equal(cached!.length, 1);
     assert.equal(cached![0].id, 1);
@@ -71,7 +70,7 @@ describe("handleAddresses", () => {
 
   it("selects address and invalidates cache", async () => {
     const deps = makeDeps();
-    deps.addressCache.set("addr:user123", [{ id: 1, address: "old", lat: 0, lng: 0 }], 600_000);
+    deps.addressCache.set("addr", [{ id: 1, address: "old", lat: 0, lng: 0 }], 600_000);
 
     const result = await handleAddresses({
       select_source: "poi",
@@ -82,8 +81,7 @@ describe("handleAddresses", () => {
 
     const parsed = JSON.parse(result.content[0].text);
     assert.equal(parsed.id, 2);
-    // Cache should be invalidated
-    assert.equal(deps.addressCache.get("addr:user123"), undefined);
+    assert.equal(deps.addressCache.get("addr"), undefined);
   });
 
   it("returns friendly error on gateway failure", async () => {
