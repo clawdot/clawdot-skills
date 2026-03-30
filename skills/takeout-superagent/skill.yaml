@@ -14,7 +14,7 @@ locale: zh-CN
 auth_model: superagent
 
 requires:
-  bins: [node]
+  bins: [python3]
   env:
     - name: GATEWAY_URL
       description: ClawDot Gateway API 地址
@@ -23,7 +23,7 @@ requires:
     - name: ADMIN_SECRET
       description: 超级 Agent 管理密钥，用于动态绑定用户
 
-entry_point: src/index.ts
+entry_point: scripts/takeout_superagent.py
 
 actions:
   - name: addresses
