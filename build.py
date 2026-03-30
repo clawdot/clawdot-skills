@@ -15,6 +15,7 @@ import sys
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 SKILLS_DIR = os.path.join(REPO_ROOT, "skills")
 DIST_DIR = os.path.join(REPO_ROOT, "dist")
+IGNORE_PATTERNS = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
 
 
 def find_skills():
@@ -64,19 +65,24 @@ def build_skill(name, skill_info, output_root):
         scripts_dir = os.path.join(skill_dir, "scripts")
         if os.path.isdir(scripts_dir):
             shutil.copytree(
-                scripts_dir, os.path.join(out_dir, "scripts"), dirs_exist_ok=True
+                scripts_dir, os.path.join(out_dir, "scripts"),
+                dirs_exist_ok=True, ignore=IGNORE_PATTERNS,
             )
 
         # Copy src/ (for TypeScript skills)
         src_dir = os.path.join(skill_dir, "src")
         if os.path.isdir(src_dir):
-            shutil.copytree(src_dir, os.path.join(out_dir, "src"), dirs_exist_ok=True)
+            shutil.copytree(
+                src_dir, os.path.join(out_dir, "src"),
+                dirs_exist_ok=True, ignore=IGNORE_PATTERNS,
+            )
 
         # Copy evals/
         evals_dir = os.path.join(skill_dir, "evals")
         if os.path.isdir(evals_dir):
             shutil.copytree(
-                evals_dir, os.path.join(out_dir, "evals"), dirs_exist_ok=True
+                evals_dir, os.path.join(out_dir, "evals"),
+                dirs_exist_ok=True, ignore=IGNORE_PATTERNS,
             )
 
         # Copy skill.yaml
