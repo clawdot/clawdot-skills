@@ -33,6 +33,25 @@ skills/
 - **GUIDE.md** — 平台无关的交互指南。定义技能的人格、对话风格、工作流程。这是技能的核心，改交互逻辑只需改这一个文件。
 - **platforms/\*/SKILL.md** — 平台适配模板。包含平台特定的 frontmatter 和调用语法，通过 `{{GUIDE}}` 标记引用 GUIDE.md 内容。构建时自动拼装。
 
+## 安装技能
+
+一行命令安装到你的 Agent 平台：
+
+```bash
+# Claude Code
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout claude-code
+
+# Codex（在项目根目录执行）
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout codex
+
+# OpenClaw
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout openclaw
+```
+
+安装脚本自动从最新 Release 下载、校验 sha256、解压到正确位置。安装指定版本加 `v0.1.0` 参数即可。
+
+> AI Agent 请参考 [INSTALL.md](INSTALL.md) 获取完整安装指引。
+
 ## 构建
 
 ```bash
@@ -44,9 +63,23 @@ python3 build.py takeout
 
 # 查看可用技能
 python3 build.py --list
+
+# 构建并打包 release（生成 tar.gz + manifest.json）
+python3 build.py --release 0.1.0
 ```
 
 构建产物输出到 `dist/`，每个 `<skill>-<platform>/` 目录是一个自包含的可部署技能包。
+
+## 发布
+
+推送 `v*` 标签自动触发 GitHub Actions：
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+CI 会自动运行 `build.py --release`，生成各平台 tar.gz 包和 `manifest.json`，并挂到 GitHub Release。
 
 ## Auth 模型
 

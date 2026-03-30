@@ -1,100 +1,87 @@
-# ClawDot Skills — Installation Guide / 安装指引
+# ClawDot Skills — Agent 安装指引
 
-## Quick Install (Shell)
+> 本文件面向 AI Agent。如果你是 Agent，直接按下方步骤执行即可完成技能安装。
+> 人类用户请参考 README.md 中的安装说明。
+
+## 安装步骤
+
+### 1. 确定你的平台
+
+| 平台 | 安装位置 | 技能文件 |
+|------|----------|----------|
+| Claude Code | `~/.claude/skills/clawdot-<skill>/` | SKILL.md |
+| Codex | 项目根目录 | AGENTS.md |
+| OpenClaw | `~/.openclaw/skills/clawdot-<skill>/` | SKILL.md |
+
+### 2. 执行安装
+
+运行以下命令（以 `takeout` 技能为例，替换 `<skill>` 和平台路径即可安装其他技能）：
+
+**Claude Code:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- <skill> <platform>
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout claude-code
 ```
 
-**Available skills:**
-
-| Skill | Platforms | Description |
-|-------|-----------|-------------|
-| takeout | claude-code, codex, openclaw | 外卖点餐（个人版） |
-| takeout-superagent | openclaw | 外卖点餐（多用户超级 Agent） |
-
-**Examples:**
+**Codex（在项目根目录执行）:**
 
 ```bash
-# Install takeout for Claude Code
-curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout claude-code
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout codex
+```
 
-# Install specific version
+**OpenClaw:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout openclaw
+```
+
+安装脚本会自动从最新 Release 下载对应平台的技能包，校验 sha256 后解压到正确位置。
+
+### 3. 配置环境变量
+
+安装完成后需要配置以下环境变量：
+
+| 变量 | 说明 | 必需 |
+|------|------|------|
+| `GATEWAY_URL` | ClawDot Gateway API 地址 | 是 |
+| `API_KEY` | ClawDot Gateway API 密钥 | 是 |
+| `USER_TOKEN` | 用户鉴权令牌（personal 模式） | takeout |
+| `ADMIN_SECRET` | 管理密钥（superagent 模式） | takeout-superagent |
+
+### 4. 验证安装
+
+```bash
+python3 <安装目录>/scripts/takeout.py --action addresses
+```
+
+返回 JSON 格式的地址列表即安装成功。
+
+## 可用技能
+
+| 技能 | 平台 | 说明 |
+|------|------|------|
+| `takeout` | claude-code, codex, openclaw | 外卖点餐（个人版） |
+| `takeout-superagent` | openclaw | 外卖点餐（多用户超级 Agent） |
+
+## 安装指定版本
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install.sh | bash -s -- takeout claude-code v0.1.0
 ```
 
----
+## 手动安装（不使用安装脚本）
 
-## Manual Install (Agent Self-Execute / Agent 自执行)
-
-If you are an AI agent, follow the steps for your platform below. All commands can be executed directly.
-
-### Claude Code
+如果无法执行 install.sh，可以手动操作：
 
 ```bash
-# 1. Download the manifest to find the latest asset name, then download and extract
+# 1. 获取 manifest 找到最新包名
 MANIFEST=$(curl -fsSL https://github.com/clawdot/clawdot-skills/releases/latest/download/manifest.json)
 ASSET=$(echo "$MANIFEST" | python3 -c "import json,sys; print(json.load(sys.stdin)['skills']['takeout']['claude-code']['asset'])")
+
+# 2. 下载并解压（以 Claude Code 为例）
 mkdir -p ~/.claude/skills/clawdot-takeout
 curl -fsSL "https://github.com/clawdot/clawdot-skills/releases/latest/download/${ASSET}" | tar xz -C ~/.claude/skills/clawdot-takeout
 
-# 2. Configure environment variables
-# Add these to your shell profile or .env:
-export GATEWAY_URL=<gateway-url>
-export API_KEY=<api-key>
-export USER_TOKEN=<user-token>
-
-# 3. Verify installation
+# 3. 配置环境变量后验证
 python3 ~/.claude/skills/clawdot-takeout/scripts/takeout.py --action addresses
 ```
-
-### Codex
-
-```bash
-# 1. Download the manifest to find the latest asset name, then download and extract
-MANIFEST=$(curl -fsSL https://github.com/clawdot/clawdot-skills/releases/latest/download/manifest.json)
-ASSET=$(echo "$MANIFEST" | python3 -c "import json,sys; print(json.load(sys.stdin)['skills']['takeout']['codex']['asset'])")
-curl -fsSL "https://github.com/clawdot/clawdot-skills/releases/latest/download/${ASSET}" | tar xz -C .
-
-# 2. This creates AGENTS.md and scripts/ in your project
-# 3. Configure environment variables before running Codex:
-export GATEWAY_URL=<gateway-url>
-export API_KEY=<api-key>
-export USER_TOKEN=<user-token>
-```
-
-### OpenClaw
-
-```bash
-# 1. Download the manifest to find the latest asset name, then download and extract
-MANIFEST=$(curl -fsSL https://github.com/clawdot/clawdot-skills/releases/latest/download/manifest.json)
-ASSET=$(echo "$MANIFEST" | python3 -c "import json,sys; print(json.load(sys.stdin)['skills']['takeout']['openclaw']['asset'])")
-mkdir -p ~/.openclaw/skills/clawdot-takeout
-curl -fsSL "https://github.com/clawdot/clawdot-skills/releases/latest/download/${ASSET}" | tar xz -C ~/.openclaw/skills/clawdot-takeout
-
-# 2. Configure environment variables in your OpenClaw workspace config
-# Required: GATEWAY_URL, API_KEY, USER_TOKEN
-```
-
----
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `GATEWAY_URL` | ClawDot Gateway API endpoint | Yes |
-| `API_KEY` | ClawDot Gateway API key | Yes |
-| `USER_TOKEN` | User authentication token (personal auth) | Yes (takeout) |
-| `ADMIN_SECRET` | Admin secret for multi-user binding (superagent auth) | Yes (takeout-superagent) |
-
----
-
-## Verifying Installation
-
-After installation, verify by listing your saved addresses:
-
-```bash
-python3 <install-dir>/scripts/takeout.py --action addresses
-```
-
-A successful response returns JSON with your saved delivery addresses.
