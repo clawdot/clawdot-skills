@@ -46,7 +46,6 @@ curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install
 | `GATEWAY_URL` | ClawDot Gateway API 地址 | 是 |
 | `API_KEY` | ClawDot Gateway API 密钥 | 是 |
 | `USER_TOKEN` | 用户鉴权令牌（personal 模式） | takeout |
-| `ADMIN_SECRET` | 管理密钥（superagent 模式） | takeout-superagent |
 
 ### 4. 验证安装
 
@@ -61,7 +60,6 @@ python3 <安装目录>/scripts/takeout.py --action addresses
 | 技能 | 平台 | 说明 |
 |------|------|------|
 | `takeout` | claude-code, codex, openclaw | 外卖点餐（个人版） |
-| `takeout-superagent` | openclaw | 外卖点餐（多用户超级 Agent） |
 
 ## 安装指定版本
 
