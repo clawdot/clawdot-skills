@@ -24,6 +24,7 @@ class Config:
     gateway_url: str
     api_key: str
     admin_secret: str
+    redis_url: str | None
     default_lat: float | None
     default_lng: float | None
     timeout_ms: int
@@ -62,6 +63,7 @@ def load_config() -> Config:
         gateway_url=os.environ.get("GATEWAY_URL", "http://127.0.0.1:3100").rstrip("/"),
         api_key=os.environ.get("API_KEY", ""),
         admin_secret=os.environ.get("ADMIN_SECRET", ""),
+        redis_url=os.environ.get("REDIS_URL") or None,
         default_lat=to_float("DEFAULT_LAT"),
         default_lng=to_float("DEFAULT_LNG"),
         timeout_ms=int(os.environ.get("TIMEOUT_MS", "30000")),
@@ -212,19 +214,165 @@ class Cache:
         for k in expired:
             del self._data[k]
 
-# ── Token Resolution ────────────────────────────────────────────────────────
+# ── Redis Token Cache ───────────────────────────────────────────────────────
 
+REDIS_TOKEN_PREFIX = "clawdot:user_token:"
 TOKEN_TTL = 3600  # 1 hour
 
-def resolve_token(phone: str, gw: GatewayClient, cache: Cache) -> str:
-    """Get a user token for the given phone, using cache or trustedBind."""
-    cache_key = f"token:{phone}"
-    cached = cache.get(cache_key)
+class RedisTokenCache:
+    """Minimal Redis client for token caching — stdlib only, no redis-py."""
+
+    def __init__(self, url: str):
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        self._host = parsed.hostname or "127.0.0.1"
+        self._port = parsed.port or 6379
+        self._password = parsed.password
+        self._db = int(parsed.path.lstrip("/") or "0")
+
+    def _command(self, *args: str) -> bytes | None:
+        """Send a single RESP command and read the reply."""
+        import socket
+        parts = [f"*{len(args)}\r\n"]
+        for a in args:
+            encoded = a.encode()
+            parts.append(f"${len(encoded)}\r\n")
+            parts.append("")  # placeholder for binary data
+            parts.append("\r\n")
+        # Build raw bytes
+        raw = b""
+        arg_idx = 0
+        for p in parts:
+            if p == "" and arg_idx < len(args):
+                raw += args[arg_idx].encode()
+                arg_idx += 1
+            else:
+                raw += p.encode()
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        try:
+            sock.connect((self._host, self._port))
+            # AUTH if needed
+            if self._password:
+                sock.sendall(self._build_cmd("AUTH", self._password))
+                self._read_reply(sock)
+            # SELECT db
+            if self._db != 0:
+                sock.sendall(self._build_cmd("SELECT", str(self._db)))
+                self._read_reply(sock)
+            sock.sendall(raw)
+            return self._read_reply(sock)
+        finally:
+            sock.close()
+
+    @staticmethod
+    def _build_cmd(*args: str) -> bytes:
+        parts = [f"*{len(args)}\r\n".encode()]
+        for a in args:
+            encoded = a.encode()
+            parts.append(f"${len(encoded)}\r\n".encode() + encoded + b"\r\n")
+        return b"".join(parts)
+
+    @staticmethod
+    def _read_reply(sock) -> bytes | None:
+        """Read a single RESP reply."""
+        import socket
+        buf = b""
+        while b"\r\n" not in buf:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+
+        if not buf:
+            return None
+
+        prefix = buf[0:1]
+        line_end = buf.index(b"\r\n")
+        line = buf[1:line_end]
+
+        if prefix == b"+":       # Simple string
+            return line
+        elif prefix == b"-":     # Error
+            return None
+        elif prefix == b":":     # Integer
+            return line
+        elif prefix == b"$":     # Bulk string
+            length = int(line)
+            if length == -1:
+                return None
+            # Need length + \r\n bytes after the first line
+            data_start = line_end + 2
+            total_needed = data_start + length + 2
+            while len(buf) < total_needed:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            return buf[data_start:data_start + length]
+        else:
+            return None
+
+    def get(self, key: str) -> str | None:
+        try:
+            result = self._command("GET", key)
+            return result.decode() if result else None
+        except Exception:
+            return None
+
+    def setex(self, key: str, ttl: int, value: str) -> bool:
+        try:
+            self._command("SETEX", key, str(ttl), value)
+            return True
+        except Exception:
+            return False
+
+
+def _try_connect_redis(config: Config) -> RedisTokenCache | None:
+    """Create Redis client if REDIS_URL is configured, None otherwise."""
+    if not config.redis_url:
+        return None
+    try:
+        return RedisTokenCache(config.redis_url)
+    except Exception:
+        return None
+
+
+# ── Token Resolution ────────────────────────────────────────────────────────
+
+def resolve_token(
+    phone: str,
+    gw: GatewayClient,
+    cache: Cache,
+    redis: RedisTokenCache | None,
+) -> str:
+    """Resolve phone → user_token. Redis first, then file cache, then trustedBind."""
+    redis_key = f"{REDIS_TOKEN_PREFIX}{phone}"
+    file_cache_key = f"token:{phone}"
+
+    # 1. Try Redis
+    if redis:
+        token = redis.get(redis_key)
+        if token:
+            return token
+
+    # 2. Try file cache
+    cached = cache.get(file_cache_key)
     if cached:
-        return cached["user_token"]
+        token = cached["user_token"]
+        # Backfill Redis if available
+        if redis:
+            redis.setex(redis_key, TOKEN_TTL, token)
+        return token
+
+    # 3. trustedBind, then write to both caches
     result = gw.trusted_bind(phone)
-    cache.set(cache_key, result, TOKEN_TTL)
-    return result["user_token"]
+    token = result["user_token"]
+    cache.set(file_cache_key, result, TOKEN_TTL)
+    if redis:
+        redis.setex(redis_key, TOKEN_TTL, token)
+    return token
 
 # ── Response Trimmers ───────────────────────────────────────────────────────
 
@@ -595,9 +743,10 @@ def main() -> None:
 
     gw = GatewayClient(config)
     cache = Cache()
+    redis = _try_connect_redis(config)
 
     try:
-        user_token = resolve_token(args.phone, gw, cache)
+        user_token = resolve_token(args.phone, gw, cache, redis)
     except GatewayError as e:
         die(f"认证失败：{friendly_error(e)}")
 
