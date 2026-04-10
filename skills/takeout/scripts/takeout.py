@@ -333,13 +333,13 @@ def action_search(args: argparse.Namespace, gw: GatewayClient, cache: Cache, con
     if lat is None or lng is None:
         die("无法确定配送位置，请提供地址。")
 
-    cache_key = f"search:{lat},{lng},{args.keyword or 'default'}"
+    cache_key = f"search:{lat},{lng},{args.shop_keyword or 'default'}"
     cached = cache.get(cache_key)
     if cached:
         output(cached)
         return
 
-    raw = gw.search_shops(lat, lng, args.keyword)
+    raw = gw.search_shops(lat, lng, args.shop_keyword)
     trimmed = trim_search_results(raw)
     cache.set(cache_key, trimmed, SEARCH_TTL)
     output(trimmed)
@@ -403,13 +403,13 @@ def action_addresses(args: argparse.Namespace, gw: GatewayClient, cache: Cache, 
         return
 
     # Search addresses by keyword
-    if args.search_keyword:
+    if args.address_keyword:
         lat = args.lat or config.default_lat
         lng = args.lng or config.default_lng
         if lat is None or lng is None:
             die("搜索地址时需要提供 --lat 和 --lng")
         try:
-            result = gw.search_addresses(args.search_keyword, lat, lng)
+            result = gw.search_addresses(args.address_keyword, lat, lng)
             result["saved"] = [normalize_address(a) for a in result.get("saved", [])]
             if result.get("suggestions"):
                 result["suggestions"] = [normalize_address(a) for a in result["suggestions"]]
@@ -526,7 +526,12 @@ def main() -> None:
     parser.add_argument("--action", required=True,
                         choices=["search", "menu", "addresses", "preview", "order", "order_status"])
     # search
-    parser.add_argument("--keyword", default=None)
+    parser.add_argument(
+        "--shop-keyword", "--keyword",
+        dest="shop_keyword",
+        default=None,
+        help="搜索店铺时使用的关键词；兼容旧参数 --keyword",
+    )
     parser.add_argument("--lat", type=float, default=None)
     parser.add_argument("--lng", type=float, default=None)
     # menu
@@ -534,7 +539,12 @@ def main() -> None:
     parser.add_argument("--category", default=None)
     parser.add_argument("--item-id", default=None)
     # addresses
-    parser.add_argument("--search-keyword", default=None)
+    parser.add_argument(
+        "--address-keyword", "--search-keyword",
+        dest="address_keyword",
+        default=None,
+        help="搜索地址时使用的关键词；兼容旧参数 --search-keyword",
+    )
     parser.add_argument("--select-source", default=None, choices=["poi", "eleme_history"])
     parser.add_argument("--poi-data", default=None, help="JSON string")
     parser.add_argument("--contact-name", default=None)
