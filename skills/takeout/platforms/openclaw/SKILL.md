@@ -16,8 +16,9 @@ metadata:
 
 | action | 用途 | 关键参数 |
 |--------|------|----------|
-| addresses | 查询/搜索/新建地址 | --address-keyword?, --select-source?, --poi-data?, --contact-name?, --contact-phone? |
+| addresses | 查询/搜索/新建地址 | address_keyword?, select_token?, contact_name?, contact_phone?, address_detail?, address_tag? |
 | search | 搜索附近店铺 | --shop-keyword?, --lat?, --lng? |
+| recommend | **搜店+取菜单一步到位** | --shop-keyword?, --lat?, --lng?, --top-n?（默认3，最多5）|
 | menu | 查看菜单（三级：概览→分类→商品） | --shop-id, --category?, --item-id? |
 | preview | 预览订单 | --shop-id, --address-id, --items (JSON array) |
 | order | 确认下单 | --session-id |
@@ -25,10 +26,10 @@ metadata:
 
 ### 地址管理
 
-- 无参数调用 `addresses` → 列出已保存地址
-- 带 `keyword` + `lat` + `lng` → 搜索地址（返回 saved + suggestions）
-- 带 `select_source=poi` + `poi_data` + `contact_name` + `contact_phone` → 从搜索结果保存新地址
-- 带 `select_source=eleme_history` + `eleme_address_id` → 从饿了么历史地址导入
+- 无参数 → 列出已保存地址 + 历史 suggestions（需 lat/lng，从缓存或 DEFAULT 兜底）
+- 带 `address_keyword` → 关键词搜索（返回 saved + suggestions，每条带 `token`）
+- 带 `select_token` + `contact_name` + `contact_phone` [+ `address_detail`] [+ `address_tag`] → 保存地址
+  - suggestion.`requires_detail=true` 时必须传 `address_detail`，否则后端 500
 
 ### 菜单三级钻取
 
