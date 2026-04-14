@@ -117,9 +117,6 @@ class GatewayClient:
         params = f"lat={lat}&lng={lng}"
         return self._request("GET", f"/api/v1/shops/{quote(shop_id)}?{params}")
 
-    def list_addresses(self) -> dict:
-        return self._request("GET", "/api/v1/addresses")
-
     def search_addresses(self, keyword: str | None = None, lat: float | None = None, lng: float | None = None) -> dict:
         body: dict = {}
         if keyword:
@@ -211,12 +208,21 @@ def trim_search_results(raw: dict) -> dict:
         })
     return {"shops": shops, "count": len(shops)}
 
-def build_menu_overview(raw: dict) -> dict:
+def build_menu_overview(raw: dict, compact: bool = False) -> dict:
+    """Build menu overview. compact=True 用于 recommend：跳过 ¥0 噪音分类、按销量取 top 5。"""
     shop = raw.get("shop", {})
     categories = []
     for i, cat in enumerate(raw.get("menu", [])):
+        items = cat.get("items", [])
+
+        if compact:
+            real_items = [it for it in items if it.get("price", 0) > 0]
+            if not real_items:
+                continue
+            items = real_items
+
         top_items = []
-        for item in cat.get("items", [])[:3]:
+        for item in items[:2 if compact else 3]:
             top_items.append({
                 "name": item["name"],
                 "price": item["price"],
@@ -228,6 +234,21 @@ def build_menu_overview(raw: dict) -> dict:
             "item_count": len(cat.get("items", [])),
             "top_items": top_items,
         })
+
+    if compact:
+        def _cat_score(c: dict) -> int:
+            score = 0
+            for it in c["top_items"]:
+                s = str(it.get("sold", "")).replace("+", "")
+                for part in s.split():
+                    try:
+                        score += int(part)
+                    except ValueError:
+                        pass
+            return score
+        categories.sort(key=_cat_score, reverse=True)
+        categories = categories[:5]
+
     return {
         "shop_name": shop.get("name", ""),
         "business_hours": shop.get("business_hours", ""),
@@ -325,6 +346,58 @@ def get_cached_address_coords(cache: Cache) -> tuple[float | None, float | None]
         return addrs[0].get("lat"), addrs[0].get("lng")
     return None, None
 
+def action_recommend(args: argparse.Namespace, gw: GatewayClient, cache: Cache, config: Config) -> None:
+    """搜店 + 并行取 top N 家菜单一步到位，省一次推理。
+
+    返回 {"shops": [...], "menus": [...]}：每条 menu 是 compact 概览（含 shop_id）。
+    """
+    cached_lat, cached_lng = get_cached_address_coords(cache)
+    lat = args.lat or cached_lat or config.default_lat
+    lng = args.lng or cached_lng or config.default_lng
+    if lat is None or lng is None:
+        die("无法确定配送位置，请提供 --lat 和 --lng 或先查询地址。")
+
+    try:
+        top_n = min(int(args.top_n or 3), 5)
+    except (TypeError, ValueError):
+        top_n = 3
+
+    search_cache_key = f"search:{lat},{lng},{args.shop_keyword or 'default'}"
+    cached_search = cache.get(search_cache_key)
+    if cached_search:
+        trimmed = cached_search
+    else:
+        raw = gw.search_shops(lat, lng, args.shop_keyword)
+        trimmed = trim_search_results(raw)
+        cache.set(search_cache_key, trimmed, SEARCH_TTL)
+
+    top_shops = trimmed["shops"][:top_n]
+
+    def _fetch_menu(shop: dict) -> dict:
+        menu_cache_key = f"menu:{shop['id']}:{lat},{lng}"
+        detail = cache.get(menu_cache_key)
+        if not detail:
+            try:
+                detail = gw.get_shop_detail(shop["id"], lat, lng)
+                cache.set(menu_cache_key, detail, MENU_TTL)
+            except GatewayError:
+                detail = None
+        if detail:
+            overview = build_menu_overview(detail, compact=True)
+            overview["shop_id"] = shop["id"]
+            return overview
+        return {"shop_id": shop["id"], "shop_name": shop["name"], "error": "菜单获取失败"}
+
+    from concurrent.futures import ThreadPoolExecutor
+    if top_shops:
+        with ThreadPoolExecutor(max_workers=max(1, len(top_shops))) as pool:
+            menus = list(pool.map(_fetch_menu, top_shops))
+    else:
+        menus = []
+
+    output({"shops": top_shops, "menus": menus})
+
+
 def action_search(args: argparse.Namespace, gw: GatewayClient, cache: Cache, config: Config) -> None:
     cached_lat, cached_lng = get_cached_address_coords(cache)
     lat = args.lat or cached_lat or config.default_lat
@@ -379,21 +452,19 @@ def action_menu(args: argparse.Namespace, gw: GatewayClient, cache: Cache, confi
     output(build_menu_overview(detail))
 
 def action_addresses(args: argparse.Namespace, gw: GatewayClient, cache: Cache, config: Config) -> None:
-    # Select (save) an address
-    if args.select_source:
-        body: dict = {"source": args.select_source}
-        if args.poi_data:
-            body["poi_data"] = json.loads(args.poi_data)
-        if args.contact_name:
-            body["contact_name"] = args.contact_name
-        if args.contact_phone:
-            body["contact_phone"] = args.contact_phone
+    # Select (save) an address — gateway 只接受 {token, contact_name, contact_phone, detail?, tag?}
+    if args.select_token:
+        if not args.contact_name or not args.contact_phone:
+            die("保存地址需要 --contact-name 和 --contact-phone。")
+        body: dict = {
+            "token": args.select_token,
+            "contact_name": args.contact_name,
+            "contact_phone": args.contact_phone,
+        }
         if args.address_detail:
             body["detail"] = args.address_detail
         if args.address_tag:
             body["tag"] = args.address_tag
-        if args.eleme_address_id:
-            body["eleme_address_id"] = args.eleme_address_id
         try:
             result = gw.select_address(body)
             cache.delete("addr:user")
@@ -404,10 +475,10 @@ def action_addresses(args: argparse.Namespace, gw: GatewayClient, cache: Cache, 
 
     # Search addresses by keyword
     if args.address_keyword:
-        lat = args.lat or config.default_lat
-        lng = args.lng or config.default_lng
-        if lat is None or lng is None:
-            die("搜索地址时需要提供 --lat 和 --lng")
+        cached_lat, cached_lng = get_cached_address_coords(cache)
+        lat = args.lat or cached_lat or config.default_lat
+        lng = args.lng or cached_lng or config.default_lng
+        # 网关要求 keyword 或 (lat+lng)，至少一个；keyword 一定有，lat/lng 可选
         try:
             result = gw.search_addresses(args.address_keyword, lat, lng)
             result["saved"] = [normalize_address(a) for a in result.get("saved", [])]
@@ -418,9 +489,12 @@ def action_addresses(args: argparse.Namespace, gw: GatewayClient, cache: Cache, 
             die(f"地址搜索失败：{friendly_error(e)}")
         return
 
-    # List saved addresses (default)
+    # List saved addresses (default) — gateway 现在要求至少有 lat/lng，从缓存或 DEFAULT 兜底
+    cached_lat, cached_lng = get_cached_address_coords(cache)
+    lat = args.lat or cached_lat or config.default_lat
+    lng = args.lng or cached_lng or config.default_lng
     try:
-        result = gw.search_addresses()
+        result = gw.search_addresses(None, lat, lng)
         saved = [normalize_address(a) for a in result.get("saved", [])]
         result["saved"] = saved
         if saved:
@@ -438,11 +512,16 @@ def action_preview(args: argparse.Namespace, gw: GatewayClient, cache: Cache, co
 
     raw_items = json.loads(args.items)
 
-    # Resolve address coordinates
+    # Resolve address coordinates — search_addresses 必须带 lat/lng，从缓存或 DEFAULT 兜底
     addrs = cache.get("addr:user")
     if not addrs:
+        cached_lat, cached_lng = get_cached_address_coords(cache)
+        fb_lat = args.lat or cached_lat or config.default_lat
+        fb_lng = args.lng or cached_lng or config.default_lng
+        if fb_lat is None or fb_lng is None:
+            die("无法确定浏览位置：请提供 --lat/--lng 或在 .env 配置 DEFAULT_LAT/LNG。")
         try:
-            resp = gw.search_addresses()
+            resp = gw.search_addresses(None, fb_lat, fb_lng)
             saved = [normalize_address(a) for a in resp.get("saved", [])]
             if saved:
                 addrs = [{"id": a["id"], "address": a["address"], "lat": a["lat"], "lng": a["lng"]} for a in saved]
@@ -460,6 +539,14 @@ def action_preview(args: argparse.Namespace, gw: GatewayClient, cache: Cache, co
         die(f"未找到地址 {args.address_id}。可用地址：{names or '无'}")
 
     lat, lng = addr["lat"], addr["lng"]
+    # 网关有时回 saved 时不带 lat/lng（eleme 历史地址 hydrate 失败）
+    # 退到 args > 缓存其他地址 > DEFAULT，避免发 0/0 把 preview 打挂
+    if not lat or not lng:
+        cached_lat, cached_lng = get_cached_address_coords(cache)
+        lat = args.lat or cached_lat or config.default_lat
+        lng = args.lng or cached_lng or config.default_lng
+        if not lat or not lng:
+            die(f"地址 {args.address_id} 缺少坐标，请提供 --lat/--lng 或在 .env 配置 DEFAULT_LAT/LNG。")
 
     # Resolve menu to get sku_id for each item
     cache_key = f"menu:{args.shop_id}:{lat},{lng}"
@@ -524,7 +611,7 @@ def action_order_status(args: argparse.Namespace, gw: GatewayClient, cache: Cach
 def main() -> None:
     parser = argparse.ArgumentParser(description="ClawDot takeout ordering")
     parser.add_argument("--action", required=True,
-                        choices=["search", "menu", "addresses", "preview", "order", "order_status"])
+                        choices=["search", "menu", "recommend", "addresses", "preview", "order", "order_status"])
     # search
     parser.add_argument(
         "--shop-keyword", "--keyword",
@@ -545,13 +632,12 @@ def main() -> None:
         default=None,
         help="搜索地址时使用的关键词；兼容旧参数 --search-keyword",
     )
-    parser.add_argument("--select-source", default=None, choices=["poi", "eleme_history"])
-    parser.add_argument("--poi-data", default=None, help="JSON string")
-    parser.add_argument("--contact-name", default=None)
-    parser.add_argument("--contact-phone", default=None)
-    parser.add_argument("--address-detail", default=None)
-    parser.add_argument("--address-tag", default=None)
-    parser.add_argument("--eleme-address-id", default=None)
+    parser.add_argument("--select-token", default=None,
+                        help="suggestion 的 token（由 addresses search 返回），与 --contact-name/--contact-phone 配套使用")
+    parser.add_argument("--contact-name", default=None, help="收件人姓名（select 必填）")
+    parser.add_argument("--contact-phone", default=None, help="收件人手机号（select 必填）")
+    parser.add_argument("--address-detail", default=None, help="门牌/楼层/室号；POI suggestion 必填")
+    parser.add_argument("--address-tag", default=None, help="标签：home/work/school")
     # preview
     parser.add_argument("--address-id", type=int, default=None)
     parser.add_argument("--items", default=None, help="JSON array string")
@@ -560,6 +646,8 @@ def main() -> None:
     parser.add_argument("--session-id", default=None)
     # order_status
     parser.add_argument("--order-id", default=None)
+    # recommend
+    parser.add_argument("--top-n", default=None, help="recommend：拉菜单的店铺数，默认 3、最多 5")
 
     args = parser.parse_args()
     config = load_config()
@@ -573,6 +661,7 @@ def main() -> None:
     actions = {
         "search": action_search,
         "menu": action_menu,
+        "recommend": action_recommend,
         "addresses": action_addresses,
         "preview": action_preview,
         "order": action_order,

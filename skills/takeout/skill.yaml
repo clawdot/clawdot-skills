@@ -3,7 +3,7 @@ display_name: ClawDot 外卖助手
 description: >
   通过 ClawDot 外卖网关帮用户点外卖。
   支持搜店、选菜、下单、查单全流程。
-version: 0.1.0
+version: 0.2.0
 license: MIT
 author: clawdot
 
@@ -30,6 +30,8 @@ actions:
     description: 查询、搜索、新建收货地址
   - name: search
     description: 按关键词搜索附近店铺
+  - name: recommend
+    description: 搜店 + 并行取 top N 家菜单一步到位
   - name: menu
     description: 三级菜单钻取（分类→商品→详情）
   - name: preview

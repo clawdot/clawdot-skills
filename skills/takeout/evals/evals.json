@@ -40,7 +40,7 @@
     {
       "id": 6,
       "prompt": "要个新地址，送到南京市鼓楼区中山路200号",
-      "expected_output": "用 addresses + keyword 搜索地址，从 suggestions 中选择匹配项，用 select_source=poi 保存新地址，询问收件人信息",
+      "expected_output": "用 addresses --address-keyword 搜索地址，从 suggestions 中选择匹配项的 token，问齐收件人姓名/手机/门牌后用 --select-token 保存",
       "files": []
     }
   ]

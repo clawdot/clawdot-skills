@@ -46,6 +46,10 @@ curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install
 | `GATEWAY_URL` | ClawDot Gateway API 地址 | 是 |
 | `API_KEY` | ClawDot Gateway API 密钥 | 是 |
 | `USER_TOKEN` | 用户鉴权令牌（personal 模式） | takeout |
+| `DEFAULT_LAT` | 默认配送纬度（无已存地址且未传 --lat 时使用） | 推荐 |
+| `DEFAULT_LNG` | 默认配送经度（无已存地址且未传 --lng 时使用） | 推荐 |
+
+环境变量也可以放在 `<安装目录>/.env` 文件里，脚本会自动加载。
 
 ### 4. 验证安装
 
@@ -53,7 +57,8 @@ curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install
 python3 <安装目录>/scripts/takeout.py --action addresses
 ```
 
-返回 JSON 格式的地址列表即安装成功。
+返回 JSON 格式的地址列表（含 saved + suggestions）即安装成功。
+如果返回"无法确定浏览位置"错误，说明 `DEFAULT_LAT/LNG` 没配置且账户下还没有任何已保存地址。
 
 ## 可用技能
 
