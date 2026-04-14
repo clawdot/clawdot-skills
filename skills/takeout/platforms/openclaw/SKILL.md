@@ -16,12 +16,12 @@ metadata:
 
 | action | 用途 | 关键参数 |
 |--------|------|----------|
-| addresses | 查询/搜索/新建地址 | keyword?, lat?, lng?, select_source?, poi_data?, contact_name?, contact_phone? |
-| search | 搜索附近店铺 | keyword?, lat?, lng? |
-| menu | 查看菜单（三级：概览→分类→商品） | shop_id, category?, item_id? |
-| preview | 预览订单 | shop_id, address_id, items |
-| order | 确认下单 | session_id |
-| order_status | 查询订单 | order_id |
+| addresses | 查询/搜索/新建地址 | --address-keyword?, --select-source?, --poi-data?, --contact-name?, --contact-phone? |
+| search | 搜索附近店铺 | --shop-keyword?, --lat?, --lng? |
+| menu | 查看菜单（三级：概览→分类→商品） | --shop-id, --category?, --item-id? |
+| preview | 预览订单 | --shop-id, --address-id, --items (JSON array) |
+| order | 确认下单 | --session-id |
+| order_status | 查询订单 | --order-id |
 
 ### 地址管理
 

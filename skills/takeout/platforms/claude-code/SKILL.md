@@ -15,8 +15,8 @@ metadata:
 
 | action | 用途 | 关键参数 |
 |--------|------|----------|
-| addresses | 查询/搜索/新建地址 | --search-keyword?, --select-source?, --poi-data?, --contact-name?, --contact-phone? |
-| search | 搜索附近店铺 | --keyword?, --lat?, --lng? |
+| addresses | 查询/搜索/新建地址 | --address-keyword?, --select-source?, --poi-data?, --contact-name?, --contact-phone? |
+| search | 搜索附近店铺 | --shop-keyword?, --lat?, --lng? |
 | menu | 查看菜单（三级：概览→分类→商品） | --shop-id, --category?, --item-id? |
 | preview | 预览订单 | --shop-id, --address-id, --items (JSON array) |
 | order | 确认下单 | --session-id |
@@ -25,7 +25,7 @@ metadata:
 ### 地址管理
 
 - 无参数 → 列出已保存地址
-- `--search-keyword "浦东" --lat 31.23 --lng 121.47` → 搜索地址（返回 saved + suggestions）
+- `--address-keyword "浦东" --lat 31.23 --lng 121.47` → 搜索地址（返回 saved + suggestions）
 - `--select-source poi --poi-data '{"name":"..."}' --contact-name 张三 --contact-phone 138xxx` → 保存新地址
 - `--select-source eleme_history --eleme-address-id ADDR789` → 从饿了么历史导入
 
