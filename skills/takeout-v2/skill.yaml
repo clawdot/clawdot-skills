@@ -1,0 +1,46 @@
+name: takeout-v2
+display_name: ClawDot 外卖助手 v2
+description: >
+  通过 ClawDot 外卖网关帮用户点外卖。
+  支持搜店、选菜、下单、查单全流程。
+version: 0.1.0
+license: MIT
+author: clawdot
+
+category: life-services
+tags: [food, delivery, ordering]
+locale: zh-CN
+
+auth_model: personal
+
+requires:
+  bins: [python3]
+  env:
+    - name: GATEWAY_URL
+      description: ClawDot Gateway API 地址
+    - name: API_KEY
+      description: ClawDot Gateway API 密钥
+    - name: USER_TOKEN
+      description: 用户鉴权令牌
+
+entry_point: scripts/takeout.py
+
+actions:
+  - name: addresses
+    description: 查询、搜索、新建收货地址
+  - name: search
+    description: 按关键词搜索附近店铺
+  - name: recommend
+    description: 搜店 + 并行取 top N 家菜单一步到位
+  - name: menu
+    description: 三级菜单钻取（分类→商品→详情）
+  - name: preview
+    description: 预览订单（价格、配送费、优惠）
+  - name: order
+    description: 确认并提交订单
+  - name: order_status
+    description: 查询订单配送状态
+
+platforms:
+  - claude-code
+  - openclaw
