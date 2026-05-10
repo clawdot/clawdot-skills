@@ -2,8 +2,9 @@ name: takeout
 display_name: ClawDot 外卖助手
 description: >
   通过 ClawDot 外卖网关帮用户点外卖。
-  支持搜店、选菜、下单、查单全流程。
-version: 0.2.0
+  支持搜店、选菜、下单、查单全流程；鉴权三选一：
+  personal（USER_TOKEN）/ agent（trustedBind，需 ADMIN_SECRET）/ SMS（短信验证码）。
+version: 0.4.0
 license: MIT
 author: clawdot
 
@@ -11,7 +12,9 @@ category: life-services
 tags: [food, delivery, ordering]
 locale: zh-CN
 
-auth_model: personal
+# personal: 单用户长期复用 USER_TOKEN
+# agent:    多用户共用一个 agent，按 --phone 动态 trustedBind 换 token
+auth_model: personal_or_agent
 
 requires:
   bins: [python3]
@@ -19,25 +22,38 @@ requires:
     - name: GATEWAY_URL
       description: ClawDot Gateway API 地址
     - name: API_KEY
-      description: ClawDot Gateway API 密钥
+      description: ClawDot Gateway API 密钥（两种模式都必须）
     - name: USER_TOKEN
-      description: 用户鉴权令牌
+      description: 用户鉴权令牌（personal 模式必须；agent 模式可省）
+      optional: true
+    - name: ADMIN_SECRET
+      description: Gateway admin 密钥，用于 trustedBind（agent 模式必须；personal 模式可省）
+      optional: true
+    - name: REDIS_URL
+      description: 可选 Redis 连接串，用于跨进程共享 trustedBind 出来的 user_token
+      optional: true
+    - name: DEFAULT_LAT
+      description: 默认纬度（personal 模式冷启动兜底；agent 模式忽略）
+      optional: true
+    - name: DEFAULT_LNG
+      description: 默认经度（personal 模式冷启动兜底；agent 模式忽略）
+      optional: true
 
 entry_point: scripts/takeout.py
 
 actions:
   - name: addresses
-    description: 查询、搜索、新建收货地址
+    description: 查询、搜索、新建收货地址（支持 --city 强制走城市搜索）
   - name: search
     description: 按关键词搜索附近店铺
   - name: recommend
     description: 搜店 + 并行取 top N 家菜单一步到位
   - name: menu
-    description: 三级菜单钻取（分类→商品→详情）
+    description: 三级菜单钻取（分类→商品→详情；--shop-keyword 跨分类搜菜）
   - name: preview
-    description: 预览订单（价格、配送费、优惠）
+    description: 预览订单（价格、配送费、优惠）；缺少 item_id 自动模糊匹配回退
   - name: order
-    description: 确认并提交订单
+    description: 确认并提交订单（--channel 控制付款链路）
   - name: order_status
     description: 查询订单配送状态
 

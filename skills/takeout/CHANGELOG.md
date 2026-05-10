@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.4.0] - 2026-05-10
+
+### Added
+
+- **SMS 模式**：第三方集成（无 `ADMIN_SECRET`）现在可以走短信验证码完成 user 绑定，不再被迫去 portal 网页操作。
+  - 新增 action `request_code --phone <11位>`：调 `POST /api/v1/user/bind/request` 发短信，返回 `bind_id` 给 LLM 记住
+  - 新增 action `verify_code --phone <11位> --bind-id <id> --code <6位>`：调 `POST /api/v1/user/bind/verify` 验码，验通过后 user_token 自动写进 file/Redis cache，按手机号分桶
+  - 新增 CLI 参数：`--code` / `--bind-id`
+  - `resolve_token` 增加分支：cache miss 且无 `ADMIN_SECRET` 时 `die_with_hint("USER_NOT_BOUND_NEEDS_SMS")` 引导 LLM 走 SMS 流程
+- **错误处理铁律**（SKILL.md / GUIDE.md 顶部）：禁止编造 SSL/网络错误、HTTP 错误码、API key 失效；禁止编 bind_id；禁止用 123456 当占位验证码。配套反面教材表（4 个真实 LLM 幻觉案例）。
+
+### Compatibility
+
+- 旧 `.env` 配 `USER_TOKEN`（personal）或 `ADMIN_SECRET`（agent）继续直接用，无变化
+- SMS 模式只在两者都没配时触发，**不影响**已有部署
+
+## [0.3.0] - 2026-05-10
+
+### Added
+
+- **Agent 模式**：CLI 新增 `--phone <11 位手机号>` 参数。脚本内部 `resolve_token(phone)` 走 Redis → 文件缓存 → `trustedBind`（`POST /api/v1/user/bind/trusted`，带 `X-Admin-Secret`），自动完成 agent + 手机号绑定，token 按手机号分桶缓存 1 小时。
+  - 不传 `--phone` 退化到原有 personal 模式（`USER_TOKEN` 环境变量），向后兼容
+  - 新增 env：`ADMIN_SECRET`（agent 必须）、`REDIS_URL`（可选，跨进程共享 token）
+  - `normalize_phone_for_trusted_bind` 自动剥掉 `+86` 前缀
+  - 内置极简 `RedisTokenCache`（裸 socket，无 redis-py 依赖）
+- **`addresses --city`**：城市参数支持（中文/拼音/缩写）；传了就覆盖历史坐标走 cityId 搜索，解决冷启动 + 跨城场景搜不到 POI 的问题
+- **`order --channel`**：按 bot 渠道分发付款链路。`wechat` 走桥页面 URL（拉淘宝闪购小程序原生支付，避开微信封锁）；其他渠道走饿了么 H5 收银台
+- **`menu --shop-keyword <菜名>`**：跨分类菜品模糊搜（复用 `--shop-keyword` dest，避免增加新参数）
+- **结构化错误 playbook**（`ERROR_PLAYBOOK`）：stderr 现在输出"用户向翻译 + `RECOVERY[CODE]: <下一步具体调用>`"两行格式，覆盖 16 类常见错误（缺地址/起送/打烊/售罄/POI 无门牌/凑单未点等），让 LLM 一轮推理选好下一个 tool call
+- **preview 模糊菜名自动恢复**：LLM 把中文菜名当 item_id 传时，脚本按名字模糊匹配；唯一命中静默 recovery，多候选则把 `needs_clarification` JSON 块附在 stderr 里，**不需要再 menu 一次**
+- **MUST_PICK_REQUIRED 嵌入候选**：preview 触发"必选项未点"时，把 `required_categories`（带 item_id）一并嵌进 stderr，LLM 直接读这个块给用户选项即可
+- **suggestions 字段 `token` → `sug_ref` 重命名**：避免被某些 agent 平台的密钥屏蔽器按关键字打码
+
+### Changed
+
+- `auth_model: personal` → `auth_model: personal_or_agent`，`USER_TOKEN` 改为可选
+- `GatewayClient` 不再在构造时锁定 `user_token`，改为每次请求按需注入 `X-User-Token` / `X-Admin-Secret` header
+- `addresses` 缓存键由全局 `addr:user` 改为 `addr:{phone or 'user'}`（personal 模式键不变；agent 模式按手机号分桶）
+- `addresses select` 不再 `cache.delete + 强制重拉` 而是把新地址插到缓存头部，省掉 ~25s 的二次 round-trip
+- `addresses` saved 列表加上 `last_used_at`、`use_count`、`detail`、`contact_*`、`tag` 字段，支持"上次送过 XX"对话路径
+- `version` 0.2.0 → 0.3.0
+- 三平台 SKILL.md 同步更新调用示例、环境变量列表
+- GUIDE.md 增加 Step 0（token 解析）、🏙️ city 铁律、Step 4.5（饮品规格确认）、Step 6 channel 路由、preview 内置错误回收说明
+
+### Backwards-compatible
+
+- 旧用户的 `.env`（`GATEWAY_URL/API_KEY/USER_TOKEN/DEFAULT_LAT/LNG`）不动直接用：personal 模式不传 `--phone` 时行为与 0.2.0 一致
+- `--shop-keyword` / `--keyword` / `--address-keyword` / `--search-keyword` 旧别名继续可用
+- `DEFAULT_LAT/LNG` 仍是 personal 模式的冷启动兜底；agent 模式忽略
+
 ## [0.2.0] - 2026-04-14
 
 ### Added

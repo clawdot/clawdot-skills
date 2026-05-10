@@ -13,7 +13,78 @@
 
 ---
 
+## ⚠️ 错误处理铁律（强制，违反算 bug）
+
+**脚本的 stdout / stderr 是唯一真相**。读到啥就照啥处理，**禁止脑补**。
+
+### 禁止行为
+
+- ❌ **禁止编造网络/SSL/超时错误**。脚本如果真撞 SSL/超时，stderr 会有完整 traceback；没看到就是没发生。
+- ❌ **禁止编造 HTTP 错误码**。比如 stderr 里没出现 "1010" / "ENDPOINT_NOT_FOUND"，就**不准**说"返回 error code 1010"。
+- ❌ **禁止猜测"key 失效 / 服务不可用 / 后端故障"**。这些都是 stderr 里出现明确文字才能下结论。
+- ❌ **禁止自己造 endpoint**。本 SKILL 列出的 action 之外，**绝不**用 curl/raw HTTP 试 `/api/v1/auth/*` 等其他路径。
+- ❌ **禁止编 bind_id / 编验证码 (123456) 当占位符**。bind_id 必须**真实**来自 `request_code` 的 stdout；验证码必须**真实**来自用户消息原文。
+
+### 允许行为
+
+- ✅ stdout 是合法 JSON → 业务成功，照 JSON 内容继续
+- ✅ stderr 含 `RECOVERY[CODE]` → 按 RECOVERY 指引调下一步
+- ✅ stderr 是中文报错 + exit 1 → **原样**告诉用户（去掉敏感字段后），不要二次解读
+- ✅ 不确定是哪类错 → 跟用户说"暂时不可用，稍后再试"，**禁止**编原因
+
+### 反面教材（真实发生过的）
+
+| LLM 编了啥 | 实际情况 | 教训 |
+|---|---|---|
+| "API 返回 HTTP 403 (error code: 1010)" | gateway 没这个 code，纯幻觉 | code 是字符串，没数字 1010 |
+| "API key 失效，请申请新的" | 实际是 USER_TOKEN 过期 | 看 stderr 真实文案，别瞎换 |
+| "发送 SMS 撞 SSL 问题" | 脚本明明 200 成功 | 没看 stdout 直接编 |
+| `verify_code --code 123456` | 用户根本没输码 | 验证码必须从用户消息原文提取 |
+
+---
+
 ## 决策流程（收到外卖意图后，按顺序走）
+
+### Step 0: 解析 user_token
+
+脚本支持**三种鉴权模式**，按 `.env` 配置自动决定：
+
+| 模式 | `.env` 配置 | 调用方式 | token 怎么拿 |
+|---|---|---|---|
+| **Personal** | `USER_TOKEN` 已填 | 不传 `--phone` | 直接读 env |
+| **Agent** | `ADMIN_SECRET` 已填 | 每次传 `--phone <11位>` | 脚本内 `trustedBind`（admin 路径）自动绑 |
+| **SMS** | 都没填 | 每次传 `--phone <11位>` | 用户输短信验证码绑（详见下面）|
+
+#### SMS 模式工作流（`USER_TOKEN` 和 `ADMIN_SECRET` 都没配时）
+
+业务调用（如 `addresses`）**第一次**会拿到 `RECOVERY[USER_NOT_BOUND_NEEDS_SMS]`，这是脚本要求你走 SMS 流程：
+
+```
+1. 调 takeout --phone <11位> --action request_code
+   → stdout 返回 {"bind_id": "<id>", "phone_masked": "188****2920", "next_step": "..."}
+   → SMS 已真实发到用户手机
+   
+2. 跟用户说："验证码已发到 188****2920，请回复 6 位数字"
+   ⚠️ 这一步必须等用户回复！不要替用户编 123456 或任何占位码！
+   
+3. 用户回复（比如 "048231"）
+   → 调 takeout --phone <11位> --action verify_code --bind-id <id> --code 048231
+   → 验码通过，token 自动写进 cache
+   
+4. 重新调原本想做的业务 action（addresses / recommend / preview / order）
+   → resolve_token 走 cache hit，业务正常
+```
+
+**bind_id 来源铁律**：必须是**前一步 `request_code` 的真实返回**，绝不能编。
+
+**code 来源铁律**：必须是**用户消息原文里的 6 位数字**，不是占位符、不是 123456、不是猜的。
+
+#### 通用要点
+
+- 进入 skill 后，**第一步直接执行任意业务 action**，让脚本内部解析 token / 触发 SMS hint。**不要**先口头判断"用户没注册饿了么 / 没绑定账号"。
+- `--phone` 只吃国内 11 位手机号。`+86` 前缀脚本会自动剥掉，**不要**自己改成别的格式。
+- 手机号通常来自上下文（`<user_identity>` 的 `<phone>` 字段、用户主电话等）。没有就问用户。
+- 同一用户同一会话里 `--phone` 保持一致；切换用户/手机号 = 切换缓存桶。
 
 ### Step 1: 判断意图 → 决定第一步动作
 
@@ -65,14 +136,44 @@ saved[] 为空 → "送哪儿呢？"
 多条 saved 匹配 → 问用户选哪条（不展示 ID）
 
 用户给了新地址 →
-  addresses --address-keyword "..."
-  → 从 suggestions 里挑最匹配，记下它的 token
+  addresses --address-keyword "..." [--city "..."]
+  → 从 suggestions 里挑最匹配，记下它的 sug_ref（脚本输出字段名是 sug_ref；旧版叫 token）
   → 如果 suggestion.requires_detail=true（POI）→ 必须先问"几号楼几室"
   → addresses --select-token sug_xxx --contact-name X --contact-phone Y [--address-detail "..."]
   搜不到 → 换问法 1 次 → 还搜不到 → "这个位置送不了"
 
 ⚠️ 禁止把 saved 列出来给用户看（隐私）。禁止追问超 2 次。
 ```
+
+#### 🏙️ 城市参数铁律（首次/换城市必看）
+
+网关搜 POI 需要「坐标 或 城市」其中之一：
+
+- 冷启动用户（saved 和 suggestion 都空）没有历史坐标 → 不给 city 就搜不到
+- 跨城场景（老用户在上海有历史坐标，这次出差想送北京）→ 不给 city 会搜到错误坐标的店
+
+**话术**：朋友式口吻，**city 和地点合并一句话问，禁止分两轮**：
+
+- ✅ "在哪个城市呀？直接说地址就行～"
+- ✅ "你这会儿在哪边呀？地址直接说就行～"
+- ❌ "请问您在哪个城市？"（太正式）
+- ❌ 问完城市再回一轮问地点
+
+**传参规则**：
+
+- `--city` 接受中文（`北京`/`北京市`）、拼音（`beijing`）、缩写（`BJ`）
+- 用户明确说过城市 → 每次 `addresses` 都带 `--city`，哪怕后面只说"换个地方"
+- 同一会话没换城市 → 沿用上次的 city，**不要反复追问**
+- 传了 `--city` 时，脚本会丢弃 `--lat/--lng`（city 胜过历史坐标，这是网关规则）
+
+#### 脚本报 `[需要地址]` 怎么办
+
+任何 action 返回 stderr 以 `[需要地址]` 开头 = 脚本拿不到坐标。**当场问用户当前位置**，不要：
+
+- ❌ 把 `[需要地址]` 后面那句报错原文转给用户
+- ❌ 自己挑一个城市坐标（北京/上海/杭州 都不行）
+- ❌ 跟用户解释"系统报错"/"默认坐标"
+- ✅ 直接说："你这会儿在哪边呀？地址直接说就行～"
 
 ### Step 3: 推荐店铺（用户选了品类后）
 
@@ -179,13 +280,47 @@ recommend 返回 N 家 → 全部展示，不要自行裁剪删减。
 不想选可以直接来个香辣鸡腿堡，再搭个粗薯就是一顿了——或者你想看看别的？
 </example>
 
+### Step 4.5: 用户选了菜 → 确认规格（有 specs/attrs 时）
+
+```
+用户选了一个商品（"来杯杨枝甘露"）→ menu --shop-id --item-id 拿商品详情，看 specs/attrs：
+
+无 specs 且无 attrs → 跳过，直接进 Step 5 preview
+有 specs 或 attrs → 告知当前默认选择 + 列出可改的选项：
+  "杨枝甘露，先按中杯少冰全糖给你选的。杯型有大杯/中杯，温度可选少冰/正常冰/常温/温热，甜度有全糖/不加糖。要调直接说~"
+
+⚠️ 甜度/温度等选项在 specs 或 attrs 里，不在 ingredients 里。
+   ingredients 是加料（加珍珠/加浓缩），不是口味调整。
+
+规则：
+  - 默认选便宜款 specs + 第一个 attrs 选项
+  - **必须**把可选项列给用户（用户看不到饿了么界面，不知道能选什么）
+  - 用户说的选项必须在 API 返回的可选范围内，不存在的选项不能传
+  - 用户说"行/可以/好" → 进 preview
+  - 用户说"换大杯/要热的/半糖" → 更新对应 specs/attrs，确认一句后进 preview
+  - 汉堡/炒饭等无 specs 无 attrs 的品类 → 不走这步，不问
+```
+
 ### Step 5: 用户选了菜 → Preview
 
 ```
-preview --shop-id --address-id --items '[...]' → 拿到结果后：
-用朋友口吻一段话说清 5 件事：店名 + 商品 + 每项费用 + 最终价 + 配送时间地址
+preview --shop-id --address-id --items '[...]' [--note "..."] → 拿到结果后：
+items JSON 里带上用户确认的 specs/attrs：
+  [{"item_id": "X", "quantity": 1, "specs": {"规格": "大杯"}, "attrs": {"温度": "热", "甜度": "半糖"}}]
+用朋友口吻一段话说清 5 件事：店名 + 商品（含规格） + 每项费用 + 最终价 + 配送时间地址
+用户选菜时/选菜后说了备注（"不要辣"/"放门口"等）→ 带 --note；没说就别加
 失败 → 静默重试最多 1 次，第 2 次仍失败告诉用户换组合
 ```
+
+**preview 内置错误回收**（脚本在 stderr 里给出结构化数据，按提示用就行）：
+
+- `RECOVERY[ITEM_NOT_IN_MENU]` + `needs_clarification` JSON 块 → 候选已附上，**禁止再调 menu**：
+  - candidates 长度=1 → 看 auto_recovered，已经替你改正过了
+  - candidates 长度=0 → 把候选商品名给用户让他重选
+  - candidates 长度≥2 → 列 candidates[].name 问"你要哪个"
+- `RECOVERY[MUST_PICK_REQUIRED]` + `required_categories` JSON 块 → 网关要求加必选项：
+  - 偏好类（锅底/糖度/温度/辣度/口味/咸淡）→ 列 items[].name 问用户，**禁止替用户做主**
+  - 凑单类（凑单/打包/餐具/主食自选）→ 取 items[0].item_id 自动加进 items 重 preview
 
 **Preview 输出模板**（一段话，不用小票格式）：
 
@@ -195,12 +330,32 @@ preview --shop-id --address-id --items '[...]' → 拿到结果后：
 
 ### Step 6: 用户确认 → 下单
 
+**🔒 下单确认硬规则（涉及花钱，零例外）：**
+
+preview 之后只在用户**显式肯定**时才 order，"显式肯定" = 限以下短回应：
+
+- "好" / "嗯" / "行" / "可以" / "下单" / "就这个" / "OK" / "👍"
+
+任何**带问号的回复**、任何**离题回复**（问红包、问优惠、问别的菜）一律不算确认。先回答用户问题，**再问一次**"那就下单啦？"，等下一条消息再判断。
+
 ```
-用户说"好/嗯/下单/就这个" → order --session-id
+用户显式确认 → order --session-id [--channel <当前渠道>]
 回复必带 payment_link 作为可点击链接展示。
+绝对不能省略付款链接，禁止脱敏（jwt 参数或 https://clawdot.* 短链都原样保留）。
 
 用户加菜/改量/换品 → 重新 preview
 ```
+
+#### `--channel`：按渠道分发付款链路
+
+system prompt 里有 `<request_context><channel>...</channel></request_context>` 时，把这个值原样传给 `--channel`：
+
+| 当前 channel | 传 `--channel` | 用户拿到的 payment_link | 为啥 |
+|---|---|---|---|
+| `wechat` | `--channel wechat` | `https://clawdot.*/pay/<order_id>` 短链 | 微信里点 → 拉淘宝闪购小程序原生支付，避免被微信封 |
+| `feishu` / `sendblue` / 其他 | `--channel <值>`（或不传） | 饿了么 H5 收银台 jwt 短链 | 外部浏览器能正常支付，桥页面只在微信内有效 |
+
+不传 channel 等价于"非微信渠道"，不破坏现有流程。**当 channel=wechat 时必须传**，否则微信用户会撞微信支付封锁。
 
 下单回复模板：
 
@@ -210,6 +365,8 @@ preview --shop-id --address-id --items '[...]' → 拿到结果后：
 ```
 
 **绝对不能省略付款链接。**
+
+**⚠️ 不准擅自加菜凑单。** preview 失败 / 商家"必须点主食"等限制 → 一句话告诉用户**哪几个方向**可以加（"得加个主菜，锅包肉 ¥48 或排骨豆角 ¥38"），让用户挑，**禁止自己挑一个塞进去再问下单**。
 
 ---
 
@@ -257,7 +414,7 @@ preview --shop-id --address-id --items '[...]' → 拿到结果后：
 ## 并行 & 性能规则
 
 - 不互相依赖的 tool call **必须同一轮发出**
-- `addresses`（无参）+ `recommend` 可并行
+- ⚠️ `addresses` 和 `recommend` **不能并行**：`recommend` 必须带用户实际坐标，否则可能搜到 `DEFAULT_LAT/LNG` 附近的店。先 addresses 拿到坐标，再 recommend
 - 单轮 tool call ≤ 8
 - `addresses`（无参）session 内只调一次
 - `menu` 全程只调一次（不钻 `--item-id`，除非用户要看具体规格）
@@ -300,7 +457,8 @@ preview --shop-id --address-id --items '[...]' → 拿到结果后：
 | 售罄 | "X 卖完了，同款 Y 也行吗？" |
 | 需要选规格 | 默认便宜款，告诉用户"我先按 X 选的" |
 | session 过期 | 默默重开，"刚才那个我重新算了一下" |
-| USER_TOKEN 401 | "登录过期了，更新下 USER_TOKEN" |
+| USER_TOKEN 401（personal） | "登录过期了，更新下 USER_TOKEN" |
+| trustedBind 失败（agent） | 看 stderr 的 RECOVERY 提示；通常是 ADMIN_SECRET 配错 |
 
 ---
 
