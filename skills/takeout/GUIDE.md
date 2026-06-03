@@ -283,17 +283,24 @@ recommend 返回 N 家 → 全部展示，不要自行裁剪删减。
 ### Step 4.5: 用户选了菜 → 确认规格（有 specs/attrs 时）
 
 ```
-用户选了一个商品（"来杯杨枝甘露"）→ menu --shop-id --item-id 拿商品详情，看 specs/attrs：
+用户选了一个商品（"来杯杨枝甘露"）→ menu --shop-id --item-id 拿商品详情，看 specs/attrs/sku_options：
 
-无 specs 且无 attrs → 跳过，直接进 Step 5 preview
-有 specs 或 attrs → 告知当前默认选择 + 列出可改的选项：
+无 specs、无 attrs 且无 sku_options → 跳过，直接进 Step 5 preview
+有 specs、attrs 或 sku_options → 告知当前默认选择 + 列出可改的选项：
   "杨枝甘露，先按中杯少冰全糖给你选的。杯型有大杯/中杯，温度可选少冰/正常冰/常温/温热，甜度有全糖/不加糖。要调直接说~"
 
 ⚠️ 甜度/温度等选项在 specs 或 attrs 里，不在 ingredients 里。
    ingredients 是加料（加珍珠/加浓缩），不是口味调整。
 
+⚠️ 多 SKU 规格铁律：
+   - `sku_options` 存在时，它就是规格到真实 `sku_id` 的映射。比如 Wagas 拿铁：
+     经典杯/标准杯/大杯分别对应不同 sku_id；用户要大杯就传 `specs: {"规格": "大杯"}`。
+   - 顶层 `sku_id` 只是默认 SKU，不代表其它规格不能配送指定。
+   - 除非 preview/API 明确返回该规格不可用，否则禁止说"只能到店或 APP 内调整"、"配送环节不能换规格"。
+   - 温度/冰量仍按 `attrs` 传，不参与 `sku_options` 匹配。
+
 规则：
-  - 默认选便宜款 specs + 第一个 attrs 选项
+  - 有 sku_options 时默认用 `is_default=true` 的规格；没有 sku_options 时才默认选便宜款 specs + 第一个 attrs 选项
   - **必须**把可选项列给用户（用户看不到饿了么界面，不知道能选什么）
   - 用户说的选项必须在 API 返回的可选范围内，不存在的选项不能传
   - 用户说"行/可以/好" → 进 preview
@@ -307,6 +314,7 @@ recommend 返回 N 家 → 全部展示，不要自行裁剪删减。
 preview --shop-id --address-id --items '[...]' [--note "..."] → 拿到结果后：
 items JSON 里带上用户确认的 specs/attrs：
   [{"item_id": "X", "quantity": 1, "specs": {"规格": "大杯"}, "attrs": {"温度": "热", "甜度": "半糖"}}]
+有 sku_options 时仍然这样传 specs；脚本会按 sku_options 匹配真实 sku_id。不要因为顶层 sku_id 是默认款而拒绝用户换杯型。
 用朋友口吻一段话说清 5 件事：店名 + 商品（含规格） + 每项费用 + 最终价 + 配送时间地址
 用户选菜时/选菜后说了备注（"不要辣"/"放门口"等）→ 带 --note；没说就别加
 失败 → 静默重试最多 1 次，第 2 次仍失败告诉用户换组合
@@ -439,7 +447,7 @@ system prompt 里有 `<request_context><channel>...</channel></request_context>`
 ```
 ✅ 可以默默做：
   1. 选 default_ingredients / 默认 attrs / 餐具="需要"
-  2. 规格选便宜款，事后告知
+  2. 规格按 sku_options 默认项或便宜款，事后告知
   3. 自动选最优优惠券
   4. session 过期静默重开
   5. 多分店选距离最近的

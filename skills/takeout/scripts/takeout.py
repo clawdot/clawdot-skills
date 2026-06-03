@@ -499,18 +499,90 @@ def build_category_detail(cat: dict) -> dict:
             "original_price": item.get("original_price"),
             "sold": item.get("sold_count", ""),
             "in_stock": item.get("in_stock", True),
-            "has_specs": len(item.get("specs") or []) > 0,
+            "has_specs": (
+                len(item.get("specs") or []) > 0
+                or len(item.get("sku_options") or []) > 0
+            ),
             "has_ingredients": len(item.get("ingredients") or []) > 0,
             "description": item.get("description"),
         })
     return {"category": cat["category"], "items": items}
+
+
+def _coerce_specs(value: object) -> list[dict]:
+    if not value:
+        return []
+    if isinstance(value, dict):
+        return [{"name": k, "value": v} for k, v in value.items()]
+    if isinstance(value, list):
+        return [spec for spec in value if isinstance(spec, dict)]
+    return []
+
+
+def _spec_map(specs: list[dict]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for spec in specs:
+        name = spec.get("name")
+        value = spec.get("value")
+        if name is not None and value is not None:
+            result[str(name)] = str(value)
+    return result
+
+
+def _resolve_sku_id_for_specs(item: dict, specs: list[dict]) -> str:
+    selected = _spec_map(specs)
+    if not selected:
+        return item["sku_id"]
+    for option in item.get("sku_options") or []:
+        option_specs = option.get("specs") or []
+        if option_specs and all(
+            selected.get(str(spec.get("name"))) == str(spec.get("value"))
+            for spec in option_specs
+        ):
+            return option.get("sku_id") or item["sku_id"]
+    return item["sku_id"]
+
+
+def _default_sku_specs(item: dict) -> dict[str, str]:
+    options = item.get("sku_options") or []
+    selected = next((option for option in options if option.get("is_default")), None)
+    if selected is None and options:
+        selected = options[0]
+    return _spec_map((selected or {}).get("specs") or [])
+
+
+def _first_option(group: dict) -> str | None:
+    options = group.get("options") or []
+    return str(options[0]) if options else None
+
+
+def build_preview_item_template(item: dict, quantity: int = 1) -> dict:
+    template: dict = {"item_id": item["item_id"], "quantity": quantity}
+    specs = _default_sku_specs(item)
+    if not specs:
+        specs = {
+            spec["name"]: chosen
+            for spec in (item.get("specs") or [])
+            if (chosen := _first_option(spec))
+        }
+    attrs = {
+        attr["name"]: chosen
+        for attr in (item.get("attrs") or [])
+        if (chosen := _first_option(attr))
+    }
+    if specs:
+        template["specs"] = specs
+    if attrs:
+        template["attrs"] = attrs
+    return template
+
 
 def build_item_detail(item: dict) -> dict:
     ingredients_parts = []
     for g in item.get("ingredients") or []:
         options = "/".join(o["name"] for o in g.get("options", []))
         ingredients_parts.append(f"{g['group_name']}({options})")
-    return {
+    detail = {
         "item_id": item["item_id"],
         "sku_id": item["sku_id"],
         "name": item["name"],
@@ -519,7 +591,16 @@ def build_item_detail(item: dict) -> dict:
         "attrs": item.get("attrs") if item.get("attrs") else None,
         "ingredients_summary": " | ".join(ingredients_parts),
         "default_ingredients": item.get("default_ingredients", []),
+        "preview_item_template": build_preview_item_template(item),
     }
+    if item.get("sku_options"):
+        detail["sku_options"] = item["sku_options"]
+        detail["sku_resolution_hint"] = (
+            "多规格商品：顶层 sku_id 只是默认 SKU。用户选择杯型/规格时，"
+            "按 sku_options[].specs 匹配对应 sku_id；除非 preview/API 明确失败，"
+            "不要说这些规格不能在配送环节指定。"
+        )
+    return detail
 
 def find_menu_item(detail: dict, item_id: str) -> dict | None:
     for cat in detail.get("menu", []):
@@ -544,7 +625,10 @@ def search_menu_items(detail: dict, keyword: str) -> dict:
                     "sold": item.get("sold_count", ""),
                     "category": cat["category"],
                     "in_stock": item.get("in_stock", True),
-                    "has_specs": len(item.get("specs") or []) > 0,
+                    "has_specs": (
+                        len(item.get("specs") or []) > 0
+                        or len(item.get("sku_options") or []) > 0
+                    ),
                 })
     return {"keyword": keyword, "matches": hits, "count": len(hits)}
 
@@ -1118,15 +1202,13 @@ def action_preview(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
         """Convert raw {item_id, quantity, specs?, attrs?} into a gateway preview
         entry, normalising specs/attrs from dict→list shape and attaching
         default_ingredients from the resolved menu_item."""
+        specs = _coerce_specs(raw.get("specs"))
         entry: dict = {
             "item_id": menu_item["item_id"],
-            "sku_id": menu_item["sku_id"],
+            "sku_id": _resolve_sku_id_for_specs(menu_item, specs),
             "quantity": raw.get("quantity", 1),
         }
-        if raw.get("specs"):
-            specs = raw["specs"]
-            if isinstance(specs, dict):
-                specs = [{"name": k, "value": v} for k, v in specs.items()]
+        if specs:
             entry["specs"] = specs
         if raw.get("attrs"):
             attrs = raw["attrs"]
