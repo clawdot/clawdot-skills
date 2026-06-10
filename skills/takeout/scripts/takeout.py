@@ -655,8 +655,7 @@ def normalize_address(addr: dict) -> dict:
 def _normalize_search_result(result: dict) -> dict:
     """Normalize search response: coerce lat/lng on saved/suggestions, drop empty saved rows.
 
-    Preserves backend sort order for suggestions (eleme_history first, poi after) and
-    keeps the new fields ``requires_detail`` and ``suggested_detail`` so the LLM can
+    Keeps the fields ``requires_detail`` and ``suggested_detail`` so the LLM can
     route on them downstream.
     """
     saved = [normalize_address(a) for a in result.get("saved", []) if a.get("address")]
@@ -666,7 +665,6 @@ def _normalize_search_result(result: dict) -> dict:
         normalize_address(a) for a in result.get("suggestions", [])
         if a.get("address") or a.get("name")
     ]
-    suggestions.sort(key=lambda a: 0 if a.get("source") == "eleme_history" else 1)
 
     # Rename "token" → "sug_ref" so the agent's secret-redaction layer (if any)
     # doesn't mask the suggestion handle by keyword. Mirror food-takeout.

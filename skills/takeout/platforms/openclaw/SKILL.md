@@ -39,7 +39,7 @@ metadata:
 
 ### 地址管理
 
-- 无参数 → 列出已保存地址（saved）；不透出饿了么历史地址簿，新绑定用户为空时报 `[需要地址]`
+- 无参数 → 列出已保存地址（saved）；为空时报 `[需要地址]`
 - 带 `address_keyword [+ city]` → 关键词搜索（POI 必须坐标或城市，二选一）
 - 带 `select_token` + `contact_name` + `contact_phone` [+ `address_detail`] [+ `address_tag`] → 保存地址
   - suggestion.`requires_detail=true` 时必须传 `address_detail`，否则 400 DETAIL_REQUIRED
