@@ -23,19 +23,22 @@ metadata:
 | preview | 预览订单（缺 item_id 自动模糊匹配） | --shop-id, --address-id, --items (JSON array), --note? |
 | order | 确认下单 | --session-id, --channel? |
 | order_status | 查询订单 | --order-id |
+| request_code | 用户绑定第 1 步：默认发短信验证码；`--auth-type h5` 返回授权链接 | --phone, --auth-type?（sms/h5，默认 sms） |
+| verify_code | 用户绑定第 2 步：短信验码 / H5 轮询授权结果，成功后缓存 token | --phone --bind-id --code（sms）；--phone --auth-type h5 --request-id（h5） |
 
-### 鉴权两种模式
+### 鉴权三种模式
 
 | 模式 | 触发条件 | 必须 env | 说明 |
 |------|---------|---------|------|
 | Personal | **不**传 `--phone` | `USER_TOKEN` | 单用户长期复用 |
 | Agent | 传 `--phone <11 位手机号>` | `ADMIN_SECRET` | 脚本内部 trustedBind 拿 token，按手机号缓存 1h；可选 `REDIS_URL` 跨进程共享 |
+| 用户绑定 | 以上都没配 | 仅 `API_KEY` | 用户自己授权：短信验证码（默认）或 H5 链接，按脚本 RECOVERY 指引一句话问齐手机号+方式 |
 
-进入 skill 后第一步直接执行 action，token 解析在脚本内部完成。`<user_identity>` 的 `<phone>` 字段就是 `--phone` 的值。
+进入 skill 后第一步直接执行 action，token 解析在脚本内部完成。`<user_identity>` 的 `<phone>` 字段就是 `--phone` 的值。`API_KEY` 也没配时脚本返回 `RECOVERY[API_KEY_MISSING]`，按指引引导用户去注册页拿 key 并写入 `.env`。
 
 ### 地址管理
 
-- 无参数 → 列出已保存地址 + 历史地址 suggestions（saved + suggestions 都空时报 `[需要地址]`）
+- 无参数 → 列出已保存地址（saved）；不透出饿了么历史地址簿，新绑定用户为空时报 `[需要地址]`
 - `--address-keyword "浦东" [--city "上海"]` → 关键词搜索（POI 必须坐标或城市，二选一）
 - `--select-token sug_xxx --contact-name 张三 --contact-phone 138xxx [--address-detail "1栋502"] [--address-tag home]` → 保存地址
   - suggestion.`requires_detail=true` 时必须传 `--address-detail`，否则 400 DETAIL_REQUIRED
