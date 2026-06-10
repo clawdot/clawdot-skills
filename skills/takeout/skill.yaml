@@ -3,8 +3,9 @@ display_name: ClawDot 外卖助手
 description: >
   通过 ClawDot 外卖网关帮用户点外卖。
   支持搜店、选菜、下单、查单全流程；鉴权三选一：
-  personal（USER_TOKEN）/ agent（trustedBind，需 ADMIN_SECRET）/ SMS（短信验证码）。
-version: 0.4.0
+  personal（USER_TOKEN）/ agent（trustedBind，需 ADMIN_SECRET）/
+  用户绑定（短信验证码默认，可选 H5 链接授权）。
+version: 0.5.0
 license: MIT
 author: clawdot
 
@@ -56,6 +57,10 @@ actions:
     description: 确认并提交订单（--channel 控制付款链路）
   - name: order_status
     description: 查询订单配送状态
+  - name: request_code
+    description: 用户绑定第 1 步（默认发短信验证码；--auth-type h5 签发授权链接）
+  - name: verify_code
+    description: 用户绑定第 2 步（短信验码 / H5 轮询授权结果），成功后缓存 user_token
 
 platforms:
   - claude-code
