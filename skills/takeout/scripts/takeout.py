@@ -32,6 +32,7 @@ class Config:
     api_key: str
     admin_secret: str
     user_token: str
+    setup_url: str
     default_lat: float | None
     default_lng: float | None
     redis_url: str | None
@@ -72,6 +73,10 @@ def load_config() -> Config:
         api_key=os.environ.get("API_KEY", ""),
         admin_secret=os.environ.get("ADMIN_SECRET", ""),
         user_token=os.environ.get("USER_TOKEN", ""),
+        setup_url=os.environ.get(
+            "CLAWDOT_SETUP_URL",
+            "https://clawdot.hicaspian.com/developer/login",
+        ),
         default_lat=to_float("DEFAULT_LAT"),
         default_lng=to_float("DEFAULT_LNG"),
         redis_url=os.environ.get("REDIS_URL") or None,
@@ -783,12 +788,13 @@ ERROR_PLAYBOOK: list[tuple[str, str, str, str]] = [
     (r"还没绑定",
      "USER_NOT_BOUND_NEEDS_SMS",
      "用户还未完成授权绑定。",
-     "下一步：问用户'用短信验证码还是打开链接授权？'（不选默认短信）。\n"
+     "下一步：手机号和方式合成一句问：'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+     "（已知手机号就只问方式；用户不选方式默认短信）。\n"
      "短信：request_code --phone {phone} → 用户回 6 位码 → "
      "verify_code --phone {phone} --bind-id <真实bind_id> --code <用户的码>。\n"
      "H5：request_code --auth-type h5 --phone {phone} → 把返回的 h5_url 原样发给用户点开授权 → "
      "用户说完成后 verify_code --auth-type h5 --phone {phone} --request-id <真实request_id>。\n"
-     "绑定成功后重调原业务 action。bind_id/request_id 必须来自真实返回，禁止编造。"),
+     "绑定成功后重调原业务 action 并带 --phone。bind_id/request_id 必须来自真实返回，禁止编造。"),
 ]
 
 
@@ -1525,12 +1531,19 @@ def main() -> None:
     config = load_config()
 
     if not config.api_key:
-        die("API_KEY 必须在 .env 中配置")
+        die(
+            "还没配置外卖服务的 API_KEY。\n"
+            f"让用户打开 {config.setup_url} 登录/注册 ClawDot 拿到 API_KEY，原文发回来；"
+            "收到后写入本 skill 根目录 .env（API_KEY=<用户发来的key>，GATEWAY_URL 未配置时一并写入），"
+            "不要复述或展示 key。写好后接着问绑定信息。\n"
+            "RECOVERY[API_KEY_MISSING]: ① 把注册链接发给用户等 key → ② 写入 .env → "
+            "③ 一句话问齐：'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+        )
 
     gw = GatewayClient(config)
     cache = Cache()
 
-    # ── SMS bind 流程（不需要 user_token）─────────────────────────
+    # ── 用户绑定流程（不需要 user_token；SMS 默认 / H5 链接授权）──────
     if args.action == "request_code":
         action_request_code(args, gw, cache, config)
         return
@@ -1540,12 +1553,20 @@ def main() -> None:
 
     # ── 其他业务 action 必须先解析 user_token ─────────────────────
     if args.phone:
-        # phone 模式：要么有 ADMIN_SECRET 走 trustedBind，要么走 SMS 流程拿 cache
-        # （后者由 resolve_token 内部 die_with_hint 兜底，引导 LLM 调 request/verify_code）
+        # phone 模式：要么有 ADMIN_SECRET 走 trustedBind，要么走用户绑定流程拿 cache
+        # （后者由 resolve_token 内部 die_with_hint 兜底，引导 LLM 问用户选 sms/h5）
         pass
     else:
         if not config.user_token:
-            die("未传 --phone 时 USER_TOKEN 必须在 .env 中配置（personal 模式）；或者改用绑定模式：传 --phone <11 位> + 调用 request_code（默认短信验证码；--auth-type h5 走链接授权）")
+            if config.admin_secret:
+                die("配置了 ADMIN_SECRET（agent 模式）时业务调用必须传 --phone <11位>。")
+            # 有 API_KEY、没 USER_TOKEN → 用户绑定模式：让用户自己选 sms/h5
+            die_with_hint(
+                "还没绑定用户。把手机号和授权方式合成一句问，例如："
+                "'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+                "（用户不选方式就默认短信）。绑定成功后重调本 action 并带 --phone。",
+                "USER_NOT_BOUND_NEEDS_SMS",
+            )
 
     redis = _try_connect_redis(config)
 

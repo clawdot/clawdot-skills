@@ -33,6 +33,9 @@ requires:
     - name: REDIS_URL
       description: 可选 Redis 连接串，用于跨进程共享 trustedBind 出来的 user_token
       optional: true
+    - name: CLAWDOT_SETUP_URL
+      description: API_KEY 缺失时引导用户注册/登录的页面地址（默认 ClawDot developer 登录页）
+      optional: true
     - name: DEFAULT_LAT
       description: 默认纬度（personal 模式冷启动兜底；agent 模式忽略）
       optional: true
