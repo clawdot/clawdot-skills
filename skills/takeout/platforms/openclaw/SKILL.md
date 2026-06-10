@@ -5,8 +5,8 @@ metadata:
   openclaw:
     requires:
       bins: [python3]
-      env: [GATEWAY_URL, API_KEY]
-      env_optional: [USER_TOKEN, ADMIN_SECRET, REDIS_URL, DEFAULT_LAT, DEFAULT_LNG]
+      env: []
+      env_optional: [GATEWAY_URL, API_KEY, USER_TOKEN, ADMIN_SECRET, REDIS_URL, CLAWDOT_SETUP_URL, DEFAULT_LAT, DEFAULT_LNG]
 ---
 
 {{GUIDE}}

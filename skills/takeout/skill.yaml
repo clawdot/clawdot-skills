@@ -21,9 +21,11 @@ requires:
   bins: [python3]
   env:
     - name: GATEWAY_URL
-      description: ClawDot Gateway API 地址
+      description: ClawDot Gateway API 地址（未配置时脚本引导用户完成配置并给出默认公网地址）
+      optional: true
     - name: API_KEY
-      description: ClawDot Gateway API 密钥（两种模式都必须）
+      description: ClawDot Gateway API 密钥（未配置时脚本返回 RECOVERY[API_KEY_MISSING] 引导用户去注册页获取）
+      optional: true
     - name: USER_TOKEN
       description: 用户鉴权令牌（personal 模式必须；agent 模式可省）
       optional: true

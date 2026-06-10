@@ -1531,10 +1531,15 @@ def main() -> None:
     config = load_config()
 
     if not config.api_key:
+        gw_url = config.gateway_url
+        if gw_url.startswith("http://127.0.0.1"):
+            gw_url = "https://clawdot.hicaspian.com/gateway"
         die(
             "还没配置外卖服务的 API_KEY。\n"
             f"让用户打开 {config.setup_url} 登录/注册 ClawDot 拿到 API_KEY，原文发回来；"
-            "收到后写入本 skill 根目录 .env（API_KEY=<用户发来的key>，GATEWAY_URL 未配置时一并写入），"
+            "收到后写入本 skill 根目录 .env，内容两行：\n"
+            f"GATEWAY_URL={gw_url}\n"
+            "API_KEY=<用户发来的key>\n"
             "不要复述或展示 key。写好后接着问绑定信息。\n"
             "RECOVERY[API_KEY_MISSING]: ① 把注册链接发给用户等 key → ② 写入 .env → "
             "③ 一句话问齐：'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
