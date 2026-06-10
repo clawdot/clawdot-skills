@@ -23,7 +23,8 @@
 - ❌ **禁止编造 HTTP 错误码**。比如 stderr 里没出现 "1010" / "ENDPOINT_NOT_FOUND"，就**不准**说"返回 error code 1010"。
 - ❌ **禁止猜测"key 失效 / 服务不可用 / 后端故障"**。这些都是 stderr 里出现明确文字才能下结论。
 - ❌ **禁止自己造 endpoint**。本 SKILL 列出的 action 之外，**绝不**用 curl/raw HTTP 试 `/api/v1/auth/*` 等其他路径。
-- ❌ **禁止编 bind_id / 编验证码 (123456) 当占位符**。bind_id 必须**真实**来自 `request_code` 的 stdout；验证码必须**真实**来自用户消息原文。
+- ❌ **禁止编 bind_id / request_id / 编验证码 (123456) 当占位符**。bind_id / request_id 必须**真实**来自 `request_code` 的 stdout；验证码必须**真实**来自用户消息原文。
+- ❌ **禁止改写/脱敏/缩短 h5_url**。H5 授权链接必须**原样**发给用户，参数动一个字符授权就失效。
 
 ### 允许行为
 
@@ -53,15 +54,30 @@
 |---|---|---|---|
 | **Personal** | `USER_TOKEN` 已填 | 不传 `--phone` | 直接读 env |
 | **Agent** | `ADMIN_SECRET` 已填 | 每次传 `--phone <11位>` | 脚本内 `trustedBind`（admin 路径）自动绑 |
-| **SMS** | 都没填 | 每次传 `--phone <11位>` | 用户输短信验证码绑（详见下面）|
+| **用户绑定** | 都没填 | 每次传 `--phone <11位>` | 用户自己授权绑：短信验证码（默认）或 H5 链接授权（详见下面）|
 
-#### SMS 模式工作流（`USER_TOKEN` 和 `ADMIN_SECRET` 都没配时）
+#### 新装 / 未配置场景（按脚本返回走，不要自己预判）
 
-业务调用（如 `addresses`）**第一次**会拿到 `RECOVERY[USER_NOT_BOUND_NEEDS_SMS]`，这是脚本要求你走 SMS 流程：
+**场景 A：连 `API_KEY` 都没配** → 任何调用返回 `RECOVERY[API_KEY_MISSING]`，按顺序做三件事：
+
+1. 把注册链接发给用户："先打开这个链接登录/注册 ClawDot，把页面里的 API_KEY 发给我～"（链接在脚本 stderr 里，原样转发）
+2. 用户发来 key → 写入 skill 根目录 `.env`（`API_KEY=<key>`，`GATEWAY_URL` 没配也一并写）。**不要复述、不要展示 key**
+3. 接着进入场景 B 的一步式提问
+
+**场景 B：有 `API_KEY`，没 `USER_TOKEN`/`ADMIN_SECRET`（用户绑定模式）** → 业务调用返回 `RECOVERY[USER_NOT_BOUND_NEEDS_SMS]`。绑定有两种方式：
+
+| 方式 | 适合场景 | 用户要做什么 |
+|---|---|---|
+| **短信验证码**（默认） | 用户方便收短信 | 回复 6 位验证码 |
+| **H5 链接授权** | 用户收不到短信 / 更习惯点链接 | 点开链接在饿了么页面确认授权 |
+
+**手机号和方式必须合成一句问**，例如："**先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～**"已知手机号就只问方式。用户不选或说随便 → 走短信。绑定成功后，后续业务 action 都带同一个 `--phone`。
+
+**短信流程：**
 
 ```
 1. 调 takeout --phone <11位> --action request_code
-   → stdout 返回 {"bind_id": "<id>", "phone_masked": "188****2920", "next_step": "..."}
+   → stdout 返回 {"auth_type": "sms", "bind_id": "<id>", "phone_masked": "188****2920", "next_step": "..."}
    → SMS 已真实发到用户手机
    
 2. 跟用户说："验证码已发到 188****2920，请回复 6 位数字"
@@ -75,13 +91,34 @@
    → resolve_token 走 cache hit，业务正常
 ```
 
-**bind_id 来源铁律**：必须是**前一步 `request_code` 的真实返回**，绝不能编。
+**H5 流程：**
+
+```
+1. 调 takeout --phone <11位> --action request_code --auth-type h5
+   → stdout 返回 {"auth_type": "h5", "request_id": "<id>", "h5_url": "https://...", "expires_in": 300, ...}
+   
+2. 把 h5_url **原样**发给用户："点开这个链接完成授权（5 分钟内有效）：<h5_url>"
+   ⚠️ 链接一个字符都不能改，不要脱敏、不要缩短、不要换行截断！
+   
+3. 等用户说"好了 / 授权完成"
+   → 调 takeout --phone <11位> --action verify_code --auth-type h5 --request-id <id>
+   → 返回 bound:true → token 自动写进 cache
+   → 报"还没完成授权"→ 提醒用户点开链接，等用户再次确认后用同一个 request_id 重调
+   → 报"链接已过期"→ 重新走第 1 步拿新链接
+   ⚠️ verify 只在用户说完成后调，禁止自己高频轮询
+   
+4. 重新调原本想做的业务 action
+```
+
+**bind_id / request_id 来源铁律**：必须是**前一步 `request_code` 的真实返回**，绝不能编。
 
 **code 来源铁律**：必须是**用户消息原文里的 6 位数字**，不是占位符、不是 123456、不是猜的。
 
+**h5_url 铁律**：原样转发给用户，禁止任何改写。
+
 #### 通用要点
 
-- 进入 skill 后，**第一步直接执行任意业务 action**，让脚本内部解析 token / 触发 SMS hint。**不要**先口头判断"用户没注册饿了么 / 没绑定账号"。
+- 进入 skill 后，**第一步直接执行任意业务 action**，让脚本内部解析 token / 触发绑定 hint。**不要**先口头判断"用户没注册饿了么 / 没绑定账号"。
 - `--phone` 只吃国内 11 位手机号。`+86` 前缀脚本会自动剥掉，**不要**自己改成别的格式。
 - 手机号通常来自上下文（`<user_identity>` 的 `<phone>` 字段、用户主电话等）。没有就问用户。
 - 同一用户同一会话里 `--phone` 保持一致；切换用户/手机号 = 切换缓存桶。

@@ -3,8 +3,9 @@ display_name: ClawDot 外卖助手
 description: >
   通过 ClawDot 外卖网关帮用户点外卖。
   支持搜店、选菜、下单、查单全流程；鉴权三选一：
-  personal（USER_TOKEN）/ agent（trustedBind，需 ADMIN_SECRET）/ SMS（短信验证码）。
-version: 0.4.0
+  personal（USER_TOKEN）/ agent（trustedBind，需 ADMIN_SECRET）/
+  用户绑定（短信验证码默认，可选 H5 链接授权）。
+version: 0.5.0
 license: MIT
 author: clawdot
 
@@ -20,9 +21,11 @@ requires:
   bins: [python3]
   env:
     - name: GATEWAY_URL
-      description: ClawDot Gateway API 地址
+      description: ClawDot Gateway API 地址（未配置时脚本引导用户完成配置并给出默认公网地址）
+      optional: true
     - name: API_KEY
-      description: ClawDot Gateway API 密钥（两种模式都必须）
+      description: ClawDot Gateway API 密钥（未配置时脚本返回 RECOVERY[API_KEY_MISSING] 引导用户去注册页获取）
+      optional: true
     - name: USER_TOKEN
       description: 用户鉴权令牌（personal 模式必须；agent 模式可省）
       optional: true
@@ -31,6 +34,9 @@ requires:
       optional: true
     - name: REDIS_URL
       description: 可选 Redis 连接串，用于跨进程共享 trustedBind 出来的 user_token
+      optional: true
+    - name: CLAWDOT_SETUP_URL
+      description: API_KEY 缺失时引导用户注册/登录的页面地址（默认 ClawDot developer 登录页）
       optional: true
     - name: DEFAULT_LAT
       description: 默认纬度（personal 模式冷启动兜底；agent 模式忽略）
@@ -56,6 +62,10 @@ actions:
     description: 确认并提交订单（--channel 控制付款链路）
   - name: order_status
     description: 查询订单配送状态
+  - name: request_code
+    description: 用户绑定第 1 步（默认发短信验证码；--auth-type h5 签发授权链接）
+  - name: verify_code
+    description: 用户绑定第 2 步（短信验码 / H5 轮询授权结果），成功后缓存 user_token
 
 platforms:
   - claude-code

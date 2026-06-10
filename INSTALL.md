@@ -43,9 +43,10 @@ curl -fsSL https://raw.githubusercontent.com/clawdot/clawdot-skills/main/install
 
 | 变量 | 说明 | 必需 |
 |------|------|------|
-| `GATEWAY_URL` | ClawDot Gateway API 地址 | 是 |
-| `API_KEY` | ClawDot Gateway API 密钥 | 是 |
-| `USER_TOKEN` | 用户鉴权令牌（personal 模式） | takeout |
+| `GATEWAY_URL` | ClawDot Gateway API 地址 | 推荐（takeout 未配置时脚本会引导补齐） |
+| `API_KEY` | ClawDot Gateway API 密钥 | 推荐（takeout 缺失时返回 RECOVERY[API_KEY_MISSING] 引导用户去注册页获取） |
+| `USER_TOKEN` | 用户鉴权令牌（personal 模式；不配则走用户绑定模式：短信验证码默认 / H5 链接授权） | takeout 可选 |
+| `CLAWDOT_SETUP_URL` | API_KEY 缺失时的注册/登录引导页（默认 ClawDot developer 登录页） | 可选 |
 | `DEFAULT_LAT` | 默认配送纬度（无已存地址且未传 --lat 时使用） | 推荐 |
 | `DEFAULT_LNG` | 默认配送经度（无已存地址且未传 --lng 时使用） | 推荐 |
 

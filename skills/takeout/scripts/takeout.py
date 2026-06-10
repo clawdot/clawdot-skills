@@ -32,6 +32,7 @@ class Config:
     api_key: str
     admin_secret: str
     user_token: str
+    setup_url: str
     default_lat: float | None
     default_lng: float | None
     redis_url: str | None
@@ -72,6 +73,10 @@ def load_config() -> Config:
         api_key=os.environ.get("API_KEY", ""),
         admin_secret=os.environ.get("ADMIN_SECRET", ""),
         user_token=os.environ.get("USER_TOKEN", ""),
+        setup_url=os.environ.get(
+            "CLAWDOT_SETUP_URL",
+            "https://clawdot.hicaspian.com/developer/login",
+        ),
         default_lat=to_float("DEFAULT_LAT"),
         default_lng=to_float("DEFAULT_LNG"),
         redis_url=os.environ.get("REDIS_URL") or None,
@@ -146,18 +151,23 @@ class GatewayClient:
             "POST", "/api/v1/user/bind/trusted", {"phone": phone}, use_admin=True
         )
 
-    def request_bind(self, phone: str) -> dict:
-        """SMS 流程第 1 步：发验证码到 phone，返回 {"bind_id": "..."}。仅 Bearer 鉴权。"""
-        return self._request(
-            "POST", "/api/v1/user/bind/request", {"phone": phone}
-        )
+    def request_bind(self, phone: str, auth_type: str = "sms") -> dict:
+        """绑定第 1 步。sms（默认）发验证码，返回 {"bind_id": ...}；
+        h5 签发饿了么 H5 授权链接，返回 {"request_id", "h5_url", ...}。仅 Bearer 鉴权。"""
+        body: dict = {"phone": phone}
+        if auth_type != "sms":
+            body["auth_type"] = auth_type
+        return self._request("POST", "/api/v1/user/bind/request", body)
 
-    def verify_bind(self, bind_id: str, code: str) -> dict:
-        """SMS 流程第 2 步：验码，返回 {"user_token": "...", "expires_at": "..."}。仅 Bearer 鉴权。"""
-        return self._request(
-            "POST", "/api/v1/user/bind/verify",
-            {"bind_id": bind_id, "code": code},
-        )
+    def verify_bind(self, bind_id: str | None = None, code: str | None = None,
+                    request_id: str | None = None) -> dict:
+        """绑定第 2 步。sms 传 bind_id+code，返回 {"user_token", "expires_at"}；
+        h5 传 request_id 轮询授权结果，未完成返回 {"bound": false, "status": ...}。仅 Bearer 鉴权。"""
+        if request_id:
+            body: dict = {"auth_type": "h5", "request_id": request_id}
+        else:
+            body = {"bind_id": bind_id, "code": code}
+        return self._request("POST", "/api/v1/user/bind/verify", body)
 
     def search_shops(self, token: str, lat: float, lng: float, keyword: str | None = None) -> dict:
         params = f"lat={lat}&lng={lng}"
@@ -403,8 +413,8 @@ def resolve_token(
 
     # 没 ADMIN_SECRET → 必须走 SMS 流程让用户输码
     die_with_hint(
-        f"用户 {bind_phone} 还没绑定。先用 request_code 发短信验证码到这个手机号，"
-        f"等用户回复 6 位码后用 verify_code 完成绑定。",
+        f"用户 {bind_phone} 还没绑定。先问用户选哪种授权方式：短信验证码（默认）或打开链接授权（H5）；"
+        f"用户不选就走短信。",
         "USER_NOT_BOUND_NEEDS_SMS",
         ctx={"phone": bind_phone},
     )
@@ -645,8 +655,7 @@ def normalize_address(addr: dict) -> dict:
 def _normalize_search_result(result: dict) -> dict:
     """Normalize search response: coerce lat/lng on saved/suggestions, drop empty saved rows.
 
-    Preserves backend sort order for suggestions (eleme_history first, poi after) and
-    keeps the new fields ``requires_detail`` and ``suggested_detail`` so the LLM can
+    Keeps the fields ``requires_detail`` and ``suggested_detail`` so the LLM can
     route on them downstream.
     """
     saved = [normalize_address(a) for a in result.get("saved", []) if a.get("address")]
@@ -656,7 +665,6 @@ def _normalize_search_result(result: dict) -> dict:
         normalize_address(a) for a in result.get("suggestions", [])
         if a.get("address") or a.get("name")
     ]
-    suggestions.sort(key=lambda a: 0 if a.get("source") == "eleme_history" else 1)
 
     # Rename "token" → "sug_ref" so the agent's secret-redaction layer (if any)
     # doesn't mask the suggestion handle by keyword. Mirror food-takeout.
@@ -774,6 +782,17 @@ ERROR_PLAYBOOK: list[tuple[str, str, str, str]] = [
      "SUGGESTION_EXPIRED",
      "地址 sug_ref 已过期。",
      "下一步：addresses --address-keyword '<用户原话地址>' 重拿新 sug_ref，再 select。"),
+
+    (r"还没绑定",
+     "USER_NOT_BOUND_NEEDS_SMS",
+     "用户还未完成授权绑定。",
+     "下一步：手机号和方式合成一句问：'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+     "（已知手机号就只问方式；用户不选方式默认短信）。\n"
+     "短信：request_code --phone {phone} → 用户回 6 位码 → "
+     "verify_code --phone {phone} --bind-id <真实bind_id> --code <用户的码>。\n"
+     "H5：request_code --auth-type h5 --phone {phone} → 把返回的 h5_url 原样发给用户点开授权 → "
+     "用户说完成后 verify_code --auth-type h5 --phone {phone} --request-id <真实request_id>。\n"
+     "绑定成功后重调原业务 action 并带 --phone。bind_id/request_id 必须来自真实返回，禁止编造。"),
 ]
 
 
@@ -781,6 +800,7 @@ _PLACEHOLDER_DEFAULTS = {
     "shop_id": "<shop_id>",
     "address_id": "<address_id>",
     "phone_masked": "<手机号>",
+    "phone": "<11位手机号>",
     "keyword": "<keyword>",
 }
 
@@ -1331,14 +1351,41 @@ def action_order_status(args: argparse.Namespace, gw: GatewayClient, cache: Cach
     output(result)
 
 
-# ── SMS bind actions（不需要 token，独立流程）─────────────────────────────────
+# ── Bind actions（不需要 token，独立流程；SMS 默认 / H5 链接授权）──────────────
 
 def action_request_code(args: argparse.Namespace, gw: GatewayClient,
                         cache: Cache, config: Config) -> None:
-    """SMS 流程第 1 步：发验证码到 --phone。返回 bind_id 给 LLM 记住，等用户输码。"""
+    """绑定第 1 步。sms（默认）：发验证码到 --phone，返回 bind_id 给 LLM 记住，等用户输码。
+    h5（--auth-type h5）：签发授权链接，返回 h5_url 给用户点开，等用户确认完成。"""
     if not args.phone:
         die("缺少 --phone 参数（用户手机号，11 位数字）")
     bind_phone = normalize_phone_for_trusted_bind(args.phone)
+    masked = f"{bind_phone[:3]}****{bind_phone[-4:]}" if len(bind_phone) >= 7 else "***"
+
+    if args.auth_type == "h5":
+        try:
+            result = gw.request_bind(bind_phone, auth_type="h5")
+        except GatewayError as e:
+            die(f"获取授权链接失败：{friendly_error(e)}")
+        request_id = result.get("request_id")
+        h5_url = result.get("h5_url")
+        if not request_id or not h5_url:
+            die(f"请求成功但 gateway 未返回 request_id/h5_url：{result}")
+        output({
+            "auth_type": "h5",
+            "request_id": request_id,
+            "h5_url": h5_url,
+            "phone": bind_phone,
+            "phone_masked": result.get("masked_phone") or masked,
+            "expires_in": result.get("expires_in", 300),
+            "next_step": (
+                f"把 h5_url 原样发给用户，让他点开完成授权（5 分钟内有效）。"
+                f"用户说授权完成后调用：verify_code --auth-type h5 "
+                f"--phone {bind_phone} --request-id {request_id}"
+            ),
+        })
+        return
+
     try:
         result = gw.request_bind(bind_phone)
     except GatewayError as e:
@@ -1346,8 +1393,8 @@ def action_request_code(args: argparse.Namespace, gw: GatewayClient,
     bind_id = result.get("bind_id")
     if not bind_id:
         die(f"发送成功但 gateway 未返回 bind_id：{result}")
-    masked = f"{bind_phone[:3]}****{bind_phone[-4:]}" if len(bind_phone) >= 7 else "***"
     output({
+        "auth_type": "sms",
         "bind_id": bind_id,
         "phone": bind_phone,
         "phone_masked": masked,
@@ -1361,17 +1408,36 @@ def action_request_code(args: argparse.Namespace, gw: GatewayClient,
 
 def action_verify_code(args: argparse.Namespace, gw: GatewayClient,
                        cache: Cache, config: Config) -> None:
-    """SMS 流程第 2 步：验码并把 user_token 写进 cache，后续业务调用自动用上。"""
+    """绑定第 2 步。sms：验码；h5：轮询授权结果。成功后把 user_token 写进 cache。"""
     if not args.phone:
         die("缺少 --phone 参数")
-    if not args.bind_id:
-        die("缺少 --bind-id 参数（来自 request_code 的返回）")
-    if not args.code:
-        die("缺少 --code 参数（用户输的 6 位短信验证码）")
-    try:
-        result = gw.verify_bind(args.bind_id, args.code)
-    except GatewayError as e:
-        die(f"验证失败：{friendly_error(e)}")
+
+    if args.auth_type == "h5":
+        if not args.request_id:
+            die("缺少 --request-id 参数（来自 request_code --auth-type h5 的返回）")
+        try:
+            result = gw.verify_bind(request_id=args.request_id)
+        except GatewayError as e:
+            die(f"查询授权结果失败：{friendly_error(e)}")
+        if not result.get("bound"):
+            status = result.get("status") or "pending"
+            if status == "expired":
+                die("授权链接已过期。\n"
+                    "RECOVERY[H5_BIND_EXPIRED]: 重新调 request_code --auth-type h5 "
+                    f"--phone {normalize_phone_for_trusted_bind(args.phone)} 拿新链接发给用户。")
+            die("用户还没完成授权。\n"
+                "RECOVERY[H5_BIND_PENDING]: 提醒用户点开刚才的链接完成授权；"
+                "等用户说完成后，用同一个 request_id 重新调本命令。不要高频轮询。")
+    else:
+        if not args.bind_id:
+            die("缺少 --bind-id 参数（来自 request_code 的返回）")
+        if not args.code:
+            die("缺少 --code 参数（用户输的 6 位短信验证码）")
+        try:
+            result = gw.verify_bind(bind_id=args.bind_id, code=args.code)
+        except GatewayError as e:
+            die(f"验证失败：{friendly_error(e)}")
+
     user_token = result.get("user_token")
     if not user_token:
         die(f"验证通过但 gateway 未返回 user_token：{result}")
@@ -1449,22 +1515,38 @@ def main() -> None:
     parser.add_argument("--order-id", default=None)
     # recommend
     parser.add_argument("--top-n", default=None, help="recommend：拉菜单的店铺数，默认 3、最多 5")
-    # SMS bind (request_code / verify_code)
+    # Bind (request_code / verify_code)
+    parser.add_argument("--auth-type", default="sms", choices=["sms", "h5"],
+                        help="绑定授权方式：sms（默认，短信验证码）/ h5（饿了么授权链接，用户点开授权后轮询结果）")
     parser.add_argument("--bind-id", default=None,
-                        help="（verify_code 必填）从 request_code 返回的 bind_id")
+                        help="（sms verify_code 必填）从 request_code 返回的 bind_id")
     parser.add_argument("--code", default=None,
-                        help="（verify_code 必填）用户回复的 6 位短信验证码")
+                        help="（sms verify_code 必填）用户回复的 6 位短信验证码")
+    parser.add_argument("--request-id", default=None,
+                        help="（h5 verify_code 必填）从 request_code --auth-type h5 返回的 request_id")
 
     args = parser.parse_args()
     config = load_config()
 
     if not config.api_key:
-        die("API_KEY 必须在 .env 中配置")
+        gw_url = config.gateway_url
+        if gw_url.startswith("http://127.0.0.1"):
+            gw_url = "https://clawdot.hicaspian.com/gateway"
+        die(
+            "还没配置外卖服务的 API_KEY。\n"
+            f"让用户打开 {config.setup_url} 登录/注册 ClawDot 拿到 API_KEY，原文发回来；"
+            "收到后写入本 skill 根目录 .env，内容两行：\n"
+            f"GATEWAY_URL={gw_url}\n"
+            "API_KEY=<用户发来的key>\n"
+            "不要复述或展示 key。写好后接着问绑定信息。\n"
+            "RECOVERY[API_KEY_MISSING]: ① 把注册链接发给用户等 key → ② 写入 .env → "
+            "③ 一句话问齐：'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+        )
 
     gw = GatewayClient(config)
     cache = Cache()
 
-    # ── SMS bind 流程（不需要 user_token）─────────────────────────
+    # ── 用户绑定流程（不需要 user_token；SMS 默认 / H5 链接授权）──────
     if args.action == "request_code":
         action_request_code(args, gw, cache, config)
         return
@@ -1474,12 +1556,20 @@ def main() -> None:
 
     # ── 其他业务 action 必须先解析 user_token ─────────────────────
     if args.phone:
-        # phone 模式：要么有 ADMIN_SECRET 走 trustedBind，要么走 SMS 流程拿 cache
-        # （后者由 resolve_token 内部 die_with_hint 兜底，引导 LLM 调 request/verify_code）
+        # phone 模式：要么有 ADMIN_SECRET 走 trustedBind，要么走用户绑定流程拿 cache
+        # （后者由 resolve_token 内部 die_with_hint 兜底，引导 LLM 问用户选 sms/h5）
         pass
     else:
         if not config.user_token:
-            die("未传 --phone 时 USER_TOKEN 必须在 .env 中配置（personal 模式）；或者改用 SMS 模式：传 --phone <11 位> + 调用 request_code 让用户输码")
+            if config.admin_secret:
+                die("配置了 ADMIN_SECRET（agent 模式）时业务调用必须传 --phone <11位>。")
+            # 有 API_KEY、没 USER_TOKEN → 用户绑定模式：让用户自己选 sms/h5
+            die_with_hint(
+                "还没绑定用户。把手机号和授权方式合成一句问，例如："
+                "'先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～'"
+                "（用户不选方式就默认短信）。绑定成功后重调本 action 并带 --phone。",
+                "USER_NOT_BOUND_NEEDS_SMS",
+            )
 
     redis = _try_connect_redis(config)
 
@@ -1489,7 +1579,7 @@ def main() -> None:
         die(f"认证失败：{friendly_error(e)}")
 
     if not token:
-        die("未能解析到 user_token，请检查 USER_TOKEN（personal 模式）或先走 SMS 流程（request_code → verify_code）")
+        die("未能解析到 user_token，请检查 USER_TOKEN（personal 模式）或先走绑定流程（request_code → verify_code；默认短信，--auth-type h5 走链接授权）")
 
     actions = {
         "search": action_search,

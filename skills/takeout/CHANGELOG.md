@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.5.0] - 2026-06-10
+
+### Added
+
+- **H5 链接授权绑定**：基于 gateway `POST /api/v1/user/bind/request` 新增的 `auth_type` 参数，用户绑定现在支持两种方式，由用户选择（不选默认短信）：
+  - 短信验证码（默认，原流程不变）：`request_code` → 用户回 6 位码 → `verify_code --bind-id --code`
+  - H5 链接授权（新）：`request_code --auth-type h5` 返回 `{request_id, h5_url, expires_in:300}` → 把 `h5_url` 原样发给用户点开授权 → 用户确认完成后 `verify_code --auth-type h5 --request-id <id>` 轮询结果；`bound:false` 时按 `status`（pending/expired）给出 `RECOVERY[H5_BIND_PENDING]` / `RECOVERY[H5_BIND_EXPIRED]` 指引，禁止高频轮询
+  - 新增 CLI 参数：`--auth-type sms|h5`（默认 `sms`）、`--request-id`
+  - 两种方式验证成功后 user_token 缓存路径完全一致（file/Redis，按手机号分桶）
+- **ERROR_PLAYBOOK 补 `USER_NOT_BOUND_NEEDS_SMS` 条目**：修复该 RECOVERY 行此前从未实际输出的问题（die_with_hint 按 code 查表查不到就静默省略）；现在未绑定报错会带完整双流程指引
+- **新装引导流程**：
+  - `API_KEY` 缺失 → `RECOVERY[API_KEY_MISSING]`：引导用户去 `CLAWDOT_SETUP_URL`（新增可选 env，默认 ClawDot developer 登录页）拿 key，agent 写入 `.env` 后继续
+  - 有 `API_KEY` 没 `USER_TOKEN`/`ADMIN_SECRET` → 不管带不带 `--phone`，业务调用都触发用户绑定流程；**手机号和绑定方式（H5/短信）合成一句问**（"先告诉我手机号，顺便选一下用 H5 还是验证码方式绑定哦～"），用户不选默认短信
+- GUIDE.md 新增 h5_url 铁律（原样转发，禁止改写/脱敏/缩短）、request_id 来源铁律
+
+### Compatibility
+
+- 默认行为不变：不传 `--auth-type` 即原 SMS 流程，入参出参完全兼容
+- H5 模式要求 gateway 已部署 `auth_type` 支持（bind/request + bind/verify 轮询语义）
+
 ## [0.4.0] - 2026-05-10
 
 ### Added
