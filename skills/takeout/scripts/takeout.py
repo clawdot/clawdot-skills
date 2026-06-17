@@ -224,10 +224,8 @@ class GatewayClient:
     def preview_order(self, token: str, body: dict) -> dict:
         return self._request("POST", "/api/v1/orders/preview", body, user_token=token)
 
-    def create_order(self, token: str, session_id: str, channel: str | None = None) -> dict:
+    def create_order(self, token: str, session_id: str) -> dict:
         body: dict = {"session_id": session_id}
-        if channel:
-            body["channel"] = channel
         return self._request("POST", "/api/v1/orders", body, user_token=token)
 
     def get_order_status(self, token: str, order_id: str) -> dict:
@@ -1382,7 +1380,7 @@ def action_order(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
     if not args.session_id:
         die("缺少 --session-id 参数。")
     try:
-        result = gw.create_order(token, args.session_id, channel=args.channel)
+        result = gw.create_order(token, args.session_id)
         output(result)
     except GatewayError as e:
         die(friendly_error(e))
@@ -1553,8 +1551,7 @@ def main() -> None:
     parser.add_argument("--session-id", default=None)
     parser.add_argument(
         "--channel", default=None,
-        help="Bot 渠道（wechat / feishu / sendblue / ...）。仅 'wechat' 时 gateway 返回桥页面 URL "
-             "（拉淘宝闪购小程序付款）；其他渠道走饿了么 H5 收银台。",
+        help="兼容旧调用的废弃参数，当前 skill 下单不会把 channel 发给 gateway。",
     )
     # order_status
     parser.add_argument("--order-id", default=None)

@@ -7,6 +7,7 @@
 - `menu --shop-id`、`menu --category`、`menu --shop-keyword` 改为请求 gateway 轻量菜单（`specs=none`），避免浏览菜单时拉全店商品规格。
 - `menu --item-id` 改为调用 gateway 单品详情接口，只在用户具体查看商品时拉该商品的规格、属性、加料和默认配料。
 - 菜单列表/搜索输出增加 `details_deferred` 提示，避免 agent 把轻量菜单里的空规格误判成商品无规格。
+- `order` 不再向 gateway 发送付款渠道；`--channel` 保留为兼容旧调用的废弃参数并被忽略，避免 skill 误拿到只能在微信内打开的付款桥页面。
 
 ## [0.5.0] - 2026-06-10
 
@@ -54,7 +55,7 @@
   - `normalize_phone_for_trusted_bind` 自动剥掉 `+86` 前缀
   - 内置极简 `RedisTokenCache`（裸 socket，无 redis-py 依赖）
 - **`addresses --city`**：城市参数支持（中文/拼音/缩写）；传了就覆盖历史坐标走 cityId 搜索，解决冷启动 + 跨城场景搜不到 POI 的问题
-- **`order --channel`**：按 bot 渠道分发付款链路。`wechat` 走桥页面 URL（拉淘宝闪购小程序原生支付，避开微信封锁）；其他渠道走饿了么 H5 收银台
+- **`order --channel`**：按 bot 渠道分发付款链路。`wechat` 走桥页面 URL（拉淘宝闪购小程序原生支付，避开微信封锁）；其他渠道走饿了么 H5 收银台。该参数已在 Unreleased 中废弃并被 skill 忽略
 - **`menu --shop-keyword <菜名>`**：跨分类菜品模糊搜（复用 `--shop-keyword` dest，避免增加新参数）
 - **结构化错误 playbook**（`ERROR_PLAYBOOK`）：stderr 现在输出"用户向翻译 + `RECOVERY[CODE]: <下一步具体调用>`"两行格式，覆盖 16 类常见错误（缺地址/起送/打烊/售罄/POI 无门牌/凑单未点等），让 LLM 一轮推理选好下一个 tool call
 - **preview 模糊菜名自动恢复**：LLM 把中文菜名当 item_id 传时，脚本按名字模糊匹配；唯一命中静默 recovery，多候选则把 `needs_clarification` JSON 块附在 stderr 里，**不需要再 menu 一次**
