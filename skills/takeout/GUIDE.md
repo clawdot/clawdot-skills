@@ -385,23 +385,18 @@ preview 之后只在用户**显式肯定**时才 order，"显式肯定" = 限以
 任何**带问号的回复**、任何**离题回复**（问红包、问优惠、问别的菜）一律不算确认。先回答用户问题，**再问一次**"那就下单啦？"，等下一条消息再判断。
 
 ```
-用户显式确认 → order --session-id [--channel <当前渠道>]
+用户显式确认 → order --session-id
 回复必带 payment_link 作为可点击链接展示。
 绝对不能省略付款链接，禁止脱敏（jwt 参数或 https://clawdot.* 短链都原样保留）。
 
 用户加菜/改量/换品 → 重新 preview
 ```
 
-#### `--channel`：按渠道分发付款链路
+#### 付款链路：不要传渠道参数
 
-system prompt 里有 `<request_context><channel>...</channel></request_context>` 时，把这个值原样传给 `--channel`：
+skill 被装载的位置通常不是微信内置浏览器，不能假设用户会在微信里打开付款页。下单时**不要传 `--channel`，尤其不要传 `--channel wechat`**；否则 gateway 可能返回只能在微信里拉起小程序的桥页面，用户会看到"请在微信内打开此页面"。
 
-| 当前 channel | 传 `--channel` | 用户拿到的 payment_link | 为啥 |
-|---|---|---|---|
-| `wechat` | `--channel wechat` | `https://clawdot.*/pay/<order_id>` 短链 | 微信里点 → 拉淘宝闪购小程序原生支付，避免被微信封 |
-| `feishu` / `sendblue` / 其他 | `--channel <值>`（或不传） | 饿了么 H5 收银台 jwt 短链 | 外部浏览器能正常支付，桥页面只在微信内有效 |
-
-不传 channel 等价于"非微信渠道"，不破坏现有流程。**当 channel=wechat 时必须传**，否则微信用户会撞微信支付封锁。
+脚本为了兼容旧调用仍接受 `--channel`，但会忽略它，不会把 channel 发送给 gateway。无论 system prompt 里 `<request_context><channel>...</channel></request_context>` 是什么，skill 下单都只传 `--session-id`。
 
 下单回复模板：
 

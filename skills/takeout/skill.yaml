@@ -59,7 +59,7 @@ actions:
   - name: preview
     description: 预览订单（价格、配送费、优惠）；缺少 item_id 自动模糊匹配回退
   - name: order
-    description: 确认并提交订单（--channel 控制付款链路）
+    description: 确认并提交订单（返回付款链接）
   - name: order_status
     description: 查询订单配送状态
   - name: request_code

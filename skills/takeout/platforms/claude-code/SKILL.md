@@ -21,7 +21,7 @@ metadata:
 | recommend | **搜店+取菜单一步到位** | --shop-keyword?, --lat?, --lng?, --top-n?（默认3，最多5）|
 | menu | 查看菜单（三级：概览→分类→商品；--shop-keyword 跨分类搜菜） | --shop-id, --category?, --item-id?, --shop-keyword? |
 | preview | 预览订单（缺 item_id 自动模糊匹配） | --shop-id, --address-id, --items (JSON array), --note? |
-| order | 确认下单 | --session-id, --channel? |
+| order | 确认下单 | --session-id |
 | order_status | 查询订单 | --order-id |
 | request_code | 用户绑定第 1 步：默认发短信验证码；`--auth-type h5` 返回授权链接 | --phone, --auth-type?（sms/h5，默认 sms） |
 | verify_code | 用户绑定第 2 步：短信验码 / H5 轮询授权结果，成功后缓存 token | --phone --bind-id --code（sms）；--phone --auth-type h5 --request-id（h5） |
