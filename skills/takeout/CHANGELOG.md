@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `menu --shop-id`、`menu --category`、`menu --shop-keyword` 改为请求 gateway 轻量菜单（`specs=none`），避免浏览菜单时拉全店商品规格。
+- `menu --item-id` 改为调用 gateway 单品详情接口，只在用户具体查看商品时拉该商品的规格、属性、加料和默认配料。
+- 菜单列表/搜索输出增加 `details_deferred` 提示，避免 agent 把轻量菜单里的空规格误判成商品无规格。
+
 ## [0.5.0] - 2026-06-10
 
 ### Added

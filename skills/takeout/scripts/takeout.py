@@ -175,10 +175,27 @@ class GatewayClient:
             params += f"&keyword={quote(keyword)}"
         return self._request("GET", f"/api/v1/shops/search?{params}", user_token=token)
 
-    def get_shop_detail(self, token: str, shop_id: str, lat: float, lng: float) -> dict:
+    def get_shop_detail(
+        self,
+        token: str,
+        shop_id: str,
+        lat: float,
+        lng: float,
+        specs: str = "full",
+    ) -> dict:
+        params = f"lat={lat}&lng={lng}"
+        if specs != "full":
+            params += f"&specs={quote(specs)}"
         return self._request(
             "GET",
-            f"/api/v1/shops/{quote(shop_id)}?lat={lat}&lng={lng}",
+            f"/api/v1/shops/{quote(shop_id)}?{params}",
+            user_token=token,
+        )
+
+    def get_shop_item_detail(self, token: str, shop_id: str, item_id: str, lat: float, lng: float) -> dict:
+        return self._request(
+            "GET",
+            f"/api/v1/shops/{quote(shop_id)}/items/{quote(item_id)}?lat={lat}&lng={lng}",
             user_token=token,
         )
 
@@ -437,7 +454,7 @@ def trim_search_results(raw: dict) -> dict:
         })
     return {"shops": shops, "count": len(shops)}
 
-def build_menu_overview(raw: dict, compact: bool = False) -> dict:
+def build_menu_overview(raw: dict, compact: bool = False, details_deferred: bool = False) -> dict:
     """Build menu overview. compact=True 用于 recommend：跳过 ¥0 噪音分类、按销量取 top 5。"""
     shop = raw.get("shop", {})
     categories = []
@@ -478,11 +495,14 @@ def build_menu_overview(raw: dict, compact: bool = False) -> dict:
         categories.sort(key=_cat_score, reverse=True)
         categories = categories[:5]
 
-    return {
+    result = {
         "shop_name": shop.get("name", ""),
         "business_hours": shop.get("business_hours", ""),
         "categories": categories,
     }
+    if details_deferred:
+        result["details_deferred"] = True
+    return result
 
 def resolve_category(menu: list[dict], query: str) -> dict | None:
     for cat in menu:
@@ -499,10 +519,10 @@ def resolve_category(menu: list[dict], query: str) -> dict | None:
             return cat
     return None
 
-def build_category_detail(cat: dict) -> dict:
+def build_category_detail(cat: dict, details_deferred: bool = False) -> dict:
     items = []
     for item in cat.get("items", []):
-        items.append({
+        entry = {
             "item_id": item["item_id"],
             "name": item["name"],
             "price": item["price"],
@@ -515,8 +535,15 @@ def build_category_detail(cat: dict) -> dict:
             ),
             "has_ingredients": len(item.get("ingredients") or []) > 0,
             "description": item.get("description"),
-        })
-    return {"category": cat["category"], "items": items}
+        }
+        if details_deferred:
+            entry["details_deferred"] = True
+            entry["next_action"] = "menu --shop-id <shop_id> --item-id <item_id>"
+        items.append(entry)
+    result = {"category": cat["category"], "items": items}
+    if details_deferred:
+        result["details_deferred"] = True
+    return result
 
 
 def _coerce_specs(value: object) -> list[dict]:
@@ -620,7 +647,7 @@ def find_menu_item(detail: dict, item_id: str) -> dict | None:
     return None
 
 
-def search_menu_items(detail: dict, keyword: str) -> dict:
+def search_menu_items(detail: dict, keyword: str, details_deferred: bool = False) -> dict:
     """Search across all categories for items whose name contains the keyword."""
     keyword_lower = keyword.lower()
     hits: list[dict] = []
@@ -628,7 +655,7 @@ def search_menu_items(detail: dict, keyword: str) -> dict:
         for item in cat.get("items", []):
             name = item.get("name", "")
             if keyword_lower in name.lower():
-                hits.append({
+                hit = {
                     "item_id": item["item_id"],
                     "name": name,
                     "price": item["price"],
@@ -639,8 +666,15 @@ def search_menu_items(detail: dict, keyword: str) -> dict:
                         len(item.get("specs") or []) > 0
                         or len(item.get("sku_options") or []) > 0
                     ),
-                })
-    return {"keyword": keyword, "matches": hits, "count": len(hits)}
+                }
+                if details_deferred:
+                    hit["details_deferred"] = True
+                    hit["next_action"] = "menu --shop-id <shop_id> --item-id <item_id>"
+                hits.append(hit)
+    result = {"keyword": keyword, "matches": hits, "count": len(hits)}
+    if details_deferred:
+        result["details_deferred"] = True
+    return result
 
 
 def normalize_address(addr: dict) -> dict:
@@ -963,6 +997,10 @@ def _refresh_saved_cache(cache: Cache, phone: str | None, saved: list[dict]) -> 
         cache.delete(addr_cache_key)
 
 
+def _menu_cache_key(shop_id: str, lat: float, lng: float, specs: str = "full") -> str:
+    return f"menu:{specs}:{shop_id}:{lat},{lng}"
+
+
 def action_recommend(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
                      config: Config, token: str, phone: str | None) -> None:
     """搜店 + 并行取 top N 家菜单一步到位，省一次推理。
@@ -993,16 +1031,16 @@ def action_recommend(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
     top_shops = trimmed["shops"][:top_n]
 
     def _fetch_menu(shop: dict) -> dict:
-        menu_cache_key = f"menu:{shop['id']}:{lat},{lng}"
+        menu_cache_key = _menu_cache_key(shop["id"], lat, lng, specs="none")
         detail = cache.get(menu_cache_key)
         if not detail:
             try:
-                detail = gw.get_shop_detail(token, shop["id"], lat, lng)
+                detail = gw.get_shop_detail(token, shop["id"], lat, lng, specs="none")
                 cache.set(menu_cache_key, detail, MENU_TTL)
             except GatewayError:
                 detail = None
         if detail:
-            overview = build_menu_overview(detail, compact=True)
+            overview = build_menu_overview(detail, compact=True, details_deferred=True)
             overview["shop_id"] = shop["id"]
             return overview
         return {"shop_id": shop["id"], "shop_name": shop["name"], "error": "菜单获取失败"}
@@ -1050,25 +1088,32 @@ def action_menu(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
             "ADDR_MISSING",
         )
 
-    cache_key = f"menu:{args.shop_id}:{lat},{lng}"
-    detail = cache.get(cache_key)
-    if not detail:
-        detail = gw.get_shop_detail(token, args.shop_id, lat, lng)
-        cache.set(cache_key, detail, MENU_TTL)
-
     if args.item_id:
-        item = find_menu_item(detail, args.item_id)
+        try:
+            result = gw.get_shop_item_detail(token, args.shop_id, args.item_id, lat, lng)
+        except GatewayError as e:
+            if e.code == "ITEM_NOT_FOUND":
+                die_with_hint(f"未找到商品 {args.item_id}", "ITEM_NOT_FOUND",
+                              {"shop_id": args.shop_id})
+            die(friendly_error(e, {"shop_id": args.shop_id}))
+        item = result.get("item") if isinstance(result, dict) else None
         if not item:
             die_with_hint(f"未找到商品 {args.item_id}", "ITEM_NOT_FOUND",
                           {"shop_id": args.shop_id})
         output(build_item_detail(item))
         return
 
+    cache_key = _menu_cache_key(args.shop_id, lat, lng, specs="none")
+    detail = cache.get(cache_key)
+    if not detail:
+        detail = gw.get_shop_detail(token, args.shop_id, lat, lng, specs="none")
+        cache.set(cache_key, detail, MENU_TTL)
+
     if args.shop_keyword:
         # In menu context, --shop-keyword (and its --keyword alias) cross-searches
         # menu items by name across categories. Reuses the same dest to avoid a
         # second flag the LLM has to learn.
-        output(search_menu_items(detail, args.shop_keyword))
+        output(search_menu_items(detail, args.shop_keyword, details_deferred=True))
         return
 
     if args.category:
@@ -1077,10 +1122,10 @@ def action_menu(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
             names = "、".join(c["category"] for c in detail.get("menu", []))
             die_with_hint(f'未找到分类"{args.category}"，可用分类：{names}',
                           "CATEGORY_NOT_FOUND")
-        output(build_category_detail(cat))
+        output(build_category_detail(cat, details_deferred=True))
         return
 
-    output(build_menu_overview(detail))
+    output(build_menu_overview(detail, details_deferred=True))
 
 
 def action_addresses(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
@@ -1212,7 +1257,7 @@ def action_preview(args: argparse.Namespace, gw: GatewayClient, cache: Cache,
             )
 
     # Resolve menu for sku_id / default_ingredients
-    cache_key = f"menu:{args.shop_id}:{lat},{lng}"
+    cache_key = _menu_cache_key(args.shop_id, lat, lng)
     detail = cache.get(cache_key)
     if not detail:
         detail = gw.get_shop_detail(token, args.shop_id, lat, lng)

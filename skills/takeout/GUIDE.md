@@ -320,7 +320,8 @@ recommend 返回 N 家 → 全部展示，不要自行裁剪删减。
 ### Step 4.5: 用户选了菜 → 确认规格（有 specs/attrs 时）
 
 ```
-用户选了一个商品（"来杯杨枝甘露"）→ menu --shop-id --item-id 拿商品详情，看 specs/attrs/sku_options：
+用户选了一个商品（"来杯杨枝甘露"）→ menu --shop-id --item-id 拿商品详情，看 specs/attrs/sku_options。
+菜单概览/分类/菜名搜索是轻量菜单，返回 `details_deferred=true` 时不要用其中空的 specs/attrs/ingredients 判断商品没有规格；必须钻 `--item-id`：
 
 无 specs、无 attrs 且无 sku_options → 跳过，直接进 Step 5 preview
 有 specs、attrs 或 sku_options → 告知当前默认选择 + 列出可改的选项：
@@ -462,7 +463,7 @@ system prompt 里有 `<request_context><channel>...</channel></request_context>`
 - ⚠️ `addresses` 和 `recommend` **不能并行**：`recommend` 必须带用户实际坐标，否则可能搜到 `DEFAULT_LAT/LNG` 附近的店。先 addresses 拿到坐标，再 recommend
 - 单轮 tool call ≤ 8
 - `addresses`（无参）session 内只调一次
-- `menu` 全程只调一次（不钻 `--item-id`，除非用户要看具体规格）
+- `menu --shop-id` / `--category` / `--shop-keyword` 只拿轻量菜单；用户具体选中商品后才用 `menu --shop-id --item-id` 查对应商品规格
 - 调 tool 前先翻历史，5 分钟内且没说"换一家" → 复用结果
 - tool 调用之间不输出文字（闷头做事做完再开口）
 - preview session_id 10 分钟过期；换收件人 = 新 select
