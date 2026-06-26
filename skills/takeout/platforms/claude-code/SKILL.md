@@ -55,3 +55,8 @@ metadata:
 - 成功：JSON 输出到 stdout
 - 失败：中文错误 + `RECOVERY[CODE]: <下一步>` 输出到 stderr，非零退出码
 - preview 失败时可能附带 `needs_clarification` 或 `required_categories` JSON 块——按 stderr 的 RECOVERY 提示用，**不要**再调 menu
+
+### 面向用户的措辞
+
+- 给用户的回复（尤其用户说"概括/总结"时）一律用**用户视角说人话**：讲「你做了什么、我帮你找了什么、下一步是什么」，不要复述内部处理流程。例：「你刚点了 Manner，我找了 4 家店，你还没选送哪～」。
+- 用户文本里**禁止出现内部术语**：`saved`、`use_count`、任何字段名、skill 名（如 `food-takeout`）、"后台任务"、"调 X 工具" 等——这些只用于内部，不外露。
